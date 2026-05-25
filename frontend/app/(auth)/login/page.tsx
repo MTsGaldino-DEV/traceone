@@ -38,12 +38,7 @@ export default function LoginPage() {
   };
 
   return (
-    <main
-      className="min-h-screen flex items-center justify-center"
-      style={{
-        background: "linear-gradient(135deg, #0a0f2c 0%, #1a2a6c 100%)",
-      }}
-    >
+    <main className="min-h-screen flex items-center justify-center">
       {/* Subtle background pattern */}
       <div
         className="absolute inset-0 opacity-5"

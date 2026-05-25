@@ -50,12 +50,7 @@ export default function RegisterPage() {
   };
 
   return (
-    <main
-      className="min-h-screen flex"
-      style={{
-        background: "linear-gradient(135deg, #0a0f2c 0%, #1a2a6c 100%)",
-      }}
-    >
+    <main className="min-h-screen flex">
       {/* ── Left panel ── */}
       <div
         className="hidden lg:flex flex-col justify-between w-1/2 px-12 py-12 relative overflow-hidden"

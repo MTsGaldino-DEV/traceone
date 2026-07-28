@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { apiFetch } from "../../../lib/api";
+// Registro de usuários é feito pelo ADMIN via painel Supabase
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -17,36 +17,8 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-
-    if (password !== confirmPassword) {
-      setError("As senhas não coincidem.");
-      return;
-    }
-
-    if (password.length < 6) {
-      setError("A senha deve ter pelo menos 6 caracteres.");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      await apiFetch("/auth/register", {
-        method: "POST",
-        body: JSON.stringify({ email, password, name: fullName }),
-      });
-
-      router.push("/login");
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "Erro ao criar conta. Tente novamente.";
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+    // Registro não é auto-serviço. Redirecionar para login.
+    router.push("/login");
   };
 
   return (

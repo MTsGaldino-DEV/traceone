@@ -13,6 +13,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { importServicos } from "../../../lib/api";
+import * as XLSX from "xlsx";
 
 // ─── Tipos ───────────────────────────────────────────────────────────────────
 interface ParsedRow {
@@ -28,8 +29,7 @@ interface ParseResult {
   errors: string[];
 }
 
-// ─── Parser CSV ───────────────────────────────────────────────────────────────
-// Colunas esperadas do relatório GDIS (case-insensitive, sem acento)
+// ─── Parser CSV/Excel ────────────────────────────────────────────────────────
 const COL_ALIASES: Record<string, string> = {
   // servico
   "servico": "servico",
@@ -69,29 +69,47 @@ function normalizeHeader(h: string): string {
     .trim();
 }
 
-function parseDate(raw: string): string | null {
+function parseDate(raw: any): string | null {
   if (!raw) return null;
+  // Se já for numérico (Excel date value)
+  if (typeof raw === "number") {
+    // converter do excel para JS date
+    const d = new Date(Math.round((raw - 25569) * 864e5));
+    return d.toISOString();
+  }
+  
+  const str = String(raw).trim();
   // DD/MM/YYYY or DD-MM-YYYY
-  const dmy = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  const dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}T00:00:00Z`;
   // YYYY-MM-DD
-  const ymd = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (ymd) return `${raw.slice(0, 10)}T00:00:00Z`;
+  const ymd = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymd) return `${str.slice(0, 10)}T00:00:00Z`;
+  
+  // Tentar parse nativo se tudo falhar
+  const t = new Date(str);
+  if (!isNaN(t.getTime())) return t.toISOString();
+  
   return null;
 }
 
-function parseCsv(text: string): ParseResult {
-  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+function parseWorkbook(buffer: ArrayBuffer): ParseResult {
+  const wb = XLSX.read(buffer, { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as any[][];
+  
   const errors: string[] = [];
   const rows: ParsedRow[] = [];
 
-  // Find header row
+  // Encontrar linha de cabeçalho nas primeiras 30 linhas
   let headerIdx = -1;
   let headers: string[] = [];
-  for (let i = 0; i < Math.min(lines.length, 10); i++) {
-    const cols = lines[i].split(/[;,\t]/);
-    const normalized = cols.map(normalizeHeader);
-    if (normalized.some((h) => COL_ALIASES[h] === "servico")) {
+  
+  for (let i = 0; i < Math.min(data.length, 30); i++) {
+    const row = data[i];
+    if (!Array.isArray(row)) continue;
+    const normalized = row.map(cell => (cell ? normalizeHeader(String(cell)) : ""));
+    if (normalized.some(h => COL_ALIASES[h] === "servico")) {
       headerIdx = i;
       headers = normalized;
       break;
@@ -101,11 +119,11 @@ function parseCsv(text: string): ParseResult {
   if (headerIdx === -1) {
     return {
       rows: [],
-      errors: ["Não foi possível encontrar a coluna 'Serviço' no arquivo. Verifique se o formato está correto."],
+      errors: ["Não foi possível encontrar a coluna 'Serviço' (ou similar) nas primeiras 30 linhas. Verifique o arquivo."],
     };
   }
 
-  // Map column indices
+  // Mapear colunas
   const colMap: Record<string, number> = {};
   headers.forEach((h, idx) => {
     const mapped = COL_ALIASES[h];
@@ -119,28 +137,34 @@ function parseCsv(text: string): ParseResult {
     return { rows: [], errors: ["Coluna de data de término não encontrada."] };
   }
 
-  const sep = lines[headerIdx].includes(";") ? ";" : lines[headerIdx].includes("\t") ? "\t" : ",";
-
-  for (let i = headerIdx + 1; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
-    const cols = line.split(sep);
-    const servico = cols[colMap["servico"]]?.trim();
+  // Ler linhas de dados
+  for (let i = headerIdx + 1; i < data.length; i++) {
+    const rowData = data[i];
+    if (!Array.isArray(rowData) || rowData.length === 0) continue;
+    
+    const rawServico = rowData[colMap["servico"]];
+    if (!rawServico) continue;
+    const servico = String(rawServico).trim();
     if (!servico) continue;
 
-    const rawTermino = cols[colMap["termino"]]?.trim() ?? "";
+    const rawTermino = rowData[colMap["termino"]];
     const termino = parseDate(rawTermino);
+    
     if (!termino) {
       errors.push(`Linha ${i + 1}: data de término inválida ("${rawTermino}") — linha ignorada.`);
       continue;
     }
 
+    const mat = colMap["matricula"] !== undefined ? rowData[colMap["matricula"]] : undefined;
+    const cod = colMap["cod_serv"] !== undefined ? rowData[colMap["cod_serv"]] : undefined;
+    const tipo = colMap["tipo_serv"] !== undefined ? rowData[colMap["tipo_serv"]] : undefined;
+
     rows.push({
       servico,
-      matricula: colMap["matricula"] !== undefined ? cols[colMap["matricula"]]?.trim() || undefined : undefined,
+      matricula: mat ? String(mat).trim() : undefined,
       termino,
-      cod_serv: colMap["cod_serv"] !== undefined ? cols[colMap["cod_serv"]]?.trim() || undefined : undefined,
-      tipo_serv: colMap["tipo_serv"] !== undefined ? cols[colMap["tipo_serv"]]?.trim() || undefined : undefined,
+      cod_serv: cod ? String(cod).trim() : undefined,
+      tipo_serv: tipo ? String(tipo).trim() : undefined,
     });
   }
 
@@ -165,22 +189,20 @@ export default function ImportacaoPage() {
     setImportError(null);
     setImportSuccess(null);
 
-    const ext = f.name.split(".").pop()?.toLowerCase();
-    if (ext === "xlsx" || ext === "xls") {
-      setParsed({
-        rows: [],
-        errors: ["Arquivos Excel (.xlsx/.xls) não são suportados diretamente. Por favor, salve como CSV (separado por vírgula ou ponto-e-vírgula) e importe novamente."],
-      });
-      return;
-    }
-
     const reader = new FileReader();
     reader.onload = (e) => {
-      const text = e.target?.result as string;
-      const result = parseCsv(text);
-      setParsed(result);
+      try {
+        const buffer = e.target?.result as ArrayBuffer;
+        const result = parseWorkbook(buffer);
+        setParsed(result);
+      } catch (err) {
+        setParsed({
+          rows: [],
+          errors: ["Falha ao ler o arquivo. Tem certeza que é um arquivo Excel/CSV válido?"],
+        });
+      }
     };
-    reader.readAsText(f, "UTF-8");
+    reader.readAsArrayBuffer(f);
   }, []);
 
   const handleFileDrop = (e: React.DragEvent) => {
@@ -230,7 +252,7 @@ export default function ImportacaoPage() {
       <div>
         <h2 className="text-xl font-bold text-[#0f172a]">Importar Relatório GDIS</h2>
         <p className="text-sm text-[#64748b] mt-0.5">
-          Faça upload do CSV exportado do GDIS para popular os serviços pendentes de conferência.
+          Faça upload do relatório Excel/CSV exportado do GDIS.
         </p>
       </div>
 
@@ -279,16 +301,16 @@ export default function ImportacaoPage() {
           </div>
           <div className="text-center">
             <p className="text-sm font-bold text-slate-800">
-              Arraste o arquivo CSV aqui ou clique para selecionar
+              Arraste o arquivo Excel/CSV aqui ou clique
             </p>
             <p className="text-xs text-slate-500 mt-1">
-              Suporte: .csv (separado por vírgula, ponto-e-vírgula ou tabulação)
+              Suporte: .xlsx, .xls, .csv
             </p>
           </div>
           <input
             ref={fileInputRef}
             type="file"
-            accept=".csv,.txt"
+            accept=".xlsx,.xls,.csv"
             className="hidden"
             onChange={handleFileChange}
           />
@@ -337,12 +359,14 @@ export default function ImportacaoPage() {
               {hasErrors && (
                 <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1">
                   <p className="text-xs font-bold text-amber-800 mb-2">Avisos de parse:</p>
-                  {parsed.errors.map((e, i) => (
-                    <p key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
-                      <AlertTriangle size={12} className="shrink-0 mt-0.5" />
-                      {e}
-                    </p>
-                  ))}
+                  <div className="max-h-32 overflow-y-auto">
+                    {parsed.errors.map((e, i) => (
+                      <p key={i} className="text-xs text-amber-700 flex items-start gap-1.5 mb-1">
+                        <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+                        {e}
+                      </p>
+                    ))}
+                  </div>
                 </div>
               )}
 

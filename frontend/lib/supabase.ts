@@ -5,12 +5,12 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// Tipos base do domínio
+// ─── Tipos base ──────────────────────────────────────────────────────────────
+
 export type Role = 'ADMIN' | 'ALMOXARIFE' | 'GESTOR';
-export type ItemType = 'CONSUMABLE' | 'ASSET';
-export type ItemStatus = 'ACTIVE' | 'INACTIVE' | 'DISCONTINUED';
-export type EmployeeStatus = 'ACTIVE' | 'INACTIVE' | 'ON_LEAVE';
-export type MovementType = 'DELIVERY' | 'RETURN' | 'LOSS' | 'REPLACEMENT' | 'WRITEOFF';
+export type StatusMedidor = 'PENDENTE' | 'CONCLUIDO';
+
+// ─── Interfaces ──────────────────────────────────────────────────────────────
 
 export interface Profile {
   id: string;
@@ -21,74 +21,82 @@ export interface Profile {
   updated_at: string;
 }
 
-export interface Employee {
-  id: string;
-  name: string;
-  registration: string;
-  job_title: string;
-  sector: string;
-  unit: string;
-  status: EmployeeStatus;
-  is_active: boolean;
+export interface TipoMedidor {
+  cod_sap: string;
+  tipo: string;
+  ligacao: 'direto' | 'indireto';
+  valor: number;
+  ativo: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export interface Category {
-  id: string;
-  name: string;
-  description?: string;
-  is_active: boolean;
+export interface Colaborador {
+  matricula: string;
+  nome: string;
+  supervisor?: string;
+  gc?: string;
+  go?: string;
+  ativo: boolean;
   created_at: string;
   updated_at: string;
 }
 
-export interface Item {
+export interface Medidor {
   id: string;
-  name: string;
-  description?: string;
-  type: ItemType;
-  category_id: string;
-  quantity: number;
-  min_stock: number;
-  lot_number?: string;
-  expires_at?: string;
-  unit: string;
-  patrimony_code?: string;
-  serial_number?: string;
-  current_holder_id?: string;
-  status: ItemStatus;
-  is_active: boolean;
+  data: string;               // date de atribuição
+  material_sap: string;       // FK tipos_de_medidores
+  serial: string;
+  matricula: string;          // FK colaboradores
+  servico_gdis?: string;      // FK servicos_report, preenchido pelo matching
+  status: StatusMedidor;
+  data_conclusao?: string;
+  servico_campo?: string;
+  equipe?: string;
+  atualizacao: string;
   created_at: string;
-  updated_at: string;
 }
 
-export interface StockMovement {
-  id: string;
-  type: MovementType;
-  item_id: string;
-  employee_id?: string;
-  user_id: string;
-  quantity: number;
-  notes?: string;
-  item_name: string;
-  employee_name?: string;
-  employee_registration?: string;
-  created_at: string;
-  // joined
-  user_name?: string;
-  user_role?: Role;
+export interface ServicoReport {
+  servico: string;
+  matricula?: string;         // FK colaboradores
+  termino: string;
+  cod_serv?: string;
+  tipo_serv?: string;
+  imported_at: string;
 }
 
-export interface DashboardStats {
-  totalEmployees: number;
-  activeEmployees: number;
-  totalItems: number;
-  deliveriesMonth: number;
-  returnsMonth: number;
-  lossesMonth: number;
-  lowStockCount: number;
-  expiringCount: number;
-  allocatedAssets: number;
-  recentMovements: StockMovement[];
+export type StatusConferencia = 'PENDENTE' | 'CONFERIDO';
+
+export interface ServicoReportConferencia extends ServicoReport {
+  status_conferencia: StatusConferencia;
+  medidor_serial_vinculado?: string | null;
+  conferido_em?: string | null;
+}
+
+export interface MedidorCompleto {
+  id: string;
+  Data: string;
+  'Material SAP': string;
+  Serial: string;
+  MATRICULA: string;
+  COLABORADOR: string;
+  SUPERVISOR?: string;
+  'SERVIÇO GDIS'?: string;
+  'Concluído/Pendente': StatusMedidor;
+  VALOR: number;
+  EQUIPAMENTO: string;
+  'DIAS DE ATRIBUIÇÃO': number;
+  'Data da conclusão'?: string;
+  ATUALIZAÇÃO: string;
+  'SERVIÇO CAMPO'?: string;
+  EQUIPE?: string;
+  reatribuido_de_id?: string | null;
+  reatribuido_para_id?: string | null;
+  data_reatribuicao?: string | null;
+}
+
+export interface MatchCandidato {
+  medidor_id: string;
+  candidatos: number;
 }

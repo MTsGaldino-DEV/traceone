@@ -10,6 +10,7 @@ import type {
   Medidor,
   ServicoReport,
   ServicoReportConferencia,
+  ServicoReportAguardando,
   MedidorCompleto,
   MatchCandidato,
 } from './supabase';
@@ -242,18 +243,51 @@ export async function importServicos(rows: Omit<ServicoReport, 'imported_at'>[])
   if (error) throw new Error(error.message);
 }
 
-export async function getServicosConferencia(): Promise<ServicoReportConferencia[]> {
-  const { data, error } = await supabase
+export async function getServicosConferencia(
+  page = 1,
+  pageSize = 200
+): Promise<{ data: ServicoReportConferencia[]; total: number }> {
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  const { data, error, count } = await supabase
     .from('servicos_report')
-    .select('*')
+    .select('*', { count: 'exact' })
     .eq('status_conferencia', 'PENDENTE')
-    .order('imported_at', { ascending: false });
+    .order('imported_at', { ascending: false })
+    .range(from, to);
+
   if (error) throw new Error(error.message);
-  return (data ?? []) as ServicoReportConferencia[];
+  return { data: (data ?? []) as ServicoReportConferencia[], total: count ?? 0 };
+}
+
+export async function getServicosAguardandoVinculacao(
+  page = 1,
+  pageSize = 200
+): Promise<{ data: ServicoReportAguardando[]; total: number }> {
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  const { data, error, count } = await supabase
+    .from('servicos_report')
+    .select('*', { count: 'exact' })
+    .eq('status_conferencia', 'AGUARDANDO_VINCULACAO')
+    .order('imported_at', { ascending: false })
+    .range(from, to);
+
+  if (error) throw new Error(error.message);
+  return { data: (data ?? []) as ServicoReportAguardando[], total: count ?? 0 };
+}
+
+export async function verificarVinculacoesPendentes(): Promise<number> {
+  const { data, error } = await supabase.rpc('verificar_vinculacoes_pendentes');
+  if (error) throw new Error(error.message);
+  return (data as number) ?? 0;
 }
 
 export interface VincularResult {
   ok: boolean;
+  aguardando?: boolean;
   error?: string;
   serial?: string;
   matricula?: string;

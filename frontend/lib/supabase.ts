@@ -66,13 +66,19 @@ export interface ServicoReport {
   imported_at: string;
 }
 
-export type StatusConferencia = 'PENDENTE' | 'CONFERIDO';
+export type StatusConferencia = 'PENDENTE' | 'CONFERIDO' | 'AGUARDANDO_VINCULACAO';
 
 export interface ServicoReportConferencia extends ServicoReport {
   status_conferencia: StatusConferencia;
   medidor_serial_vinculado?: string | null;
   conferido_em?: string | null;
+  serial_buscado?: string | null;
 }
+
+// Alias específico para registros AGUARDANDO_VINCULACAO
+export type ServicoReportAguardando = ServicoReportConferencia & {
+  serial_buscado: string;
+};
 
 export interface MedidorCompleto {
   id: string;

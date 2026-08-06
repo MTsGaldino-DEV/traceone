@@ -44,7 +44,10 @@ import type { SortConfig, RankingItem, MedidorLog } from "../../../lib/api";
 import type { MedidorCompleto, Colaborador, TipoMedidor, Profile } from "../../../lib/supabase";
 import type { ReatribuicaoHistorico, DashboardMetrics } from "../../../lib/api";
 import { canWrite } from "../../../lib/permissions";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import { PieChart } from "../../../components/charts/pie-chart";
+import { PieSlice } from "../../../components/charts/pie-slice";
+import { PieCenter } from "../../../components/charts/pie-center";
+import type { PieData } from "../../../components/charts/pie-context";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -891,40 +894,22 @@ export default function DashboardPage() {
           ) : (
             <>
               {/* Anel maior */}
-              <div className="relative mx-auto" style={{ width: 190, height: 190 }}>
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={[
-                        { name: "Pendentes", value: metrics?.pendentes ?? 0 },
-                        { name: "Concluídos", value: metrics?.concluidos ?? 0 },
-                      ]}
-                      cx="50%"
-                      cy="50%"
-                      innerRadius={62}
-                      outerRadius={86}
-                      startAngle={90}
-                      endAngle={-270}
-                      dataKey="value"
-                      strokeWidth={3}
-                      stroke="#fff"
-                    >
-                      <Cell fill="#f59e0b" />
-                      <Cell fill="#10b981" />
-                    </Pie>
-                    <Tooltip
-                      formatter={(v) => (v as number).toLocaleString("pt-BR")}
-                      contentStyle={{ fontSize: 11, borderRadius: 8, border: "1px solid #e5e7eb", boxShadow: "none" }}
-                    />
-                  </PieChart>
-                </ResponsiveContainer>
-                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                  <span className="text-[30px] font-semibold text-gray-900 tabular-nums leading-none">
-                    {(metrics?.total ?? 0).toLocaleString("pt-BR")}
-                  </span>
-                  <span className="text-[11px] text-gray-400 mt-1 uppercase tracking-wide">Total</span>
-                </div>
-              </div>
+              {(() => {
+                const pieData: PieData[] = [
+                  { label: "Pendentes", value: metrics?.pendentes ?? 0, color: "#f59e0b" },
+                  { label: "Concluídos", value: metrics?.concluidos ?? 0, color: "#10b981" },
+                ];
+                return (
+                  <div className="mx-auto" style={{ width: 190, height: 190 }}>
+                    <PieChart data={pieData} innerRadius={62} size={190}>
+                      {pieData.map((item, index) => (
+                        <PieSlice index={index} key={item.label} />
+                      ))}
+                      <PieCenter defaultLabel="Total" />
+                    </PieChart>
+                  </div>
+                );
+              })()}
 
               {/* Lista estruturada */}
               <div className="mt-5 divide-y divide-gray-100">

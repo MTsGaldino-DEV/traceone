@@ -422,6 +422,47 @@ $$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 Os 3 usuários órfãos (`admin@traceone.com`, `almox@traceone.com`, `gestor@traceone.com`) continuam sem `profiles` — se forem usados, alguém vai precisar inserir a linha manualmente em `profiles` ou recriá-los.
 
-### 11.4 Convenção de scripts descartáveis
+### 11.4 Gestão de senha — sem o admin nunca saber a senha definitiva de ninguém (2026-08-06)
+
+Modelo adotado: **usuário novo nasce com senha temporária padrão `123456`** (constante `DEFAULT_PASSWORD` em `frontend/lib/permissions.ts`, compartilhada entre backend e frontend); o próprio usuário troca por uma senha só dele no primeiro acesso. O admin nunca define nem vê a senha definitiva de ninguém.
+
+> Já existiu uma versão anterior desse fluxo baseada em convite por email (`inviteUserByEmail`) — foi substituída por essa abordagem de senha padrão a pedido explícito do usuário do projeto. Não reintroduzir o fluxo de convite sem confirmar antes.
+
+- **Criar usuário** (`/dashboard/usuarios`) → admin informa só nome/email/papel → `POST /api/users` chama `supabase.auth.admin.createUser({ email, password: DEFAULT_PASSWORD, email_confirm: true, user_metadata: { name, role } })` (service role). Sem envio de email nessa etapa.
+- **Primeiro acesso** (tela de login, link "É seu primeiro acesso?") → usuário informa email + a senha temporária (`123456` pré-preenchido) → `supabase.auth.signInWithPassword(...)` no client (sem passar pela nossa API) → se autenticar, `router.push("/reset-senha")` com a sessão real já estabelecida → lá ele define a senha definitiva (`updateUser({ password })`) → a página desloga (`signOut()`) e manda de volta pra `/login?resetok=1`, que mostra um banner de sucesso e pede pra entrar de novo já com a senha nova.
+- **Editar usuário** → admin só edita nome/email/papel/status (`PATCH /api/users/[id]`). Pra resetar a senha de alguém que esqueceu a própria senha definitiva, o botão "Enviar link de redefinição de senha" dispara `supabase.auth.resetPasswordForEmail()` (API pública, não precisa de service role) — mesma função usada no "Esqueci minha senha" do login.
+- **Usuário troca a própria senha já logado** (ícone de chave `KeyRound` no sidebar) → pede senha atual + nova; reautentica com `signInWithPassword` antes de aplicar `updateUser({ password })` — tudo client-side, sem service role (`changeOwnPassword` em `lib/api.ts`).
+- **Esqueci minha senha** (tela de login, fluxo separado do "Primeiro acesso") → `resetPasswordForEmail(email, { redirectTo: origin + '/reset-senha' })`, pra quem já tinha senha própria e esqueceu.
+- `/reset-senha` (`app/(auth)/reset-senha/page.tsx`) é a página pública compartilhada por **três fluxos**: primeiro acesso (sessão já ativa via `signInWithPassword` antes de chegar lá), link de recuperação de senha (sessão criada pelo Supabase a partir do hash da URL, `detectSessionInUrl`), e — se algum dia voltar — link de convite. Em qualquer caso, ela só chama `updateUser({ password })`, desloga e manda pro login.
+- Rotas server-side compartilham o guard `requireManager()` em `frontend/lib/api-auth.ts` (extraído pra não duplicar entre as rotas).
+- `useSearchParams()` na página de login (usado pro banner `?resetok=1`) exige um `<Suspense>` — o componente é dividido em `LoginPage` (wrapper com `Suspense`) + `LoginPageInner` (conteúdo real). Sem isso o `next build` falha com "useSearchParams() should be wrapped in a suspense boundary".
+
+### 11.5 Convenção de scripts descartáveis
 
 Scripts de diagnóstico criados em `frontend/*.ts` para investigar o banco direto (fora dos scripts permanentes do projeto como `run_migration.ts`, `import_colab.ts` etc.) devem ser **apagados assim que o teste for concluído** — não fazem parte do projeto, servem só pra uma pergunta pontual. Anotar aqui o que já foi testado evita recriar o mesmo script na próxima sessão.
+
+---
+
+## 12. Gráfico "Situação Geral" — componente vendorizado do Bklit UI (2026-08-06)
+
+O donut do card "Situação Geral" (`/dashboard`) trocou de Recharts (`<PieChart><Pie><Cell>`) pra um componente composable (`<PieChart data={...}><PieSlice index={i} /><PieCenter defaultLabel="Total" /></PieChart>`) vindo de **https://bklit.com** (registry compatível com `shadcn` CLI, não é um pacote npm instalável direto).
+
+### Como foi feito
+
+O projeto **não tem shadcn/ui configurado** (sem `components.json`, sem `cn()`/tokens de tema) — rodar `npx shadcn@latest add @bklit/pie-chart` do zero exigiria inicializar todo esse tooling só por causa de um gráfico. Em vez disso, os arquivos-fonte foram **vendorizados manualmente**:
+
+1. Baixado o JSON do registry direto (`curl https://bklit.com/r/pie-chart.json`, mais as `registryDependencies` `chart-animation` e `utils`, cada um com seu próprio JSON).
+2. Extraído o campo `content` de cada `files[]` pro path indicado em `target`, resultando em:
+   - `frontend/components/charts/` (11 arquivos: `pie-chart.tsx`, `pie-context.tsx`, `pie-slice.tsx`, `pie-center.tsx`, `pie-center-shell.tsx`, `chart-stat-flow.tsx`, `chart-center-typography.ts`, `animation.ts`, `motion-utils.ts`, `use-mount-progress.ts`, `use-enter-complete.ts`, `chart-reveal-clip.tsx`, `static-chart-preview-context.tsx`, `chart-defs.ts`)
+   - `frontend/lib/utils.ts` (helper `cn()` clássico do shadcn, `clsx` + `tailwind-merge`)
+3. Dependências runtime instaladas via npm: `@number-flow/react`, `@visx/group@4.0.1-alpha.0`, `@visx/responsive@4.0.1-alpha.0`, `@visx/shape@4.0.1-alpha.0`, `d3-shape` (+ `@types/d3-shape` como dev dep — some junto com o `recharts` removido, precisou ser readicionado manualmente), `motion`, `clsx`, `tailwind-merge`.
+4. `recharts` foi **removido** do `package.json` (`npm uninstall recharts`) — era a única lib de gráfico no projeto e ficou 100% sem uso depois da troca.
+5. Adicionadas variáveis CSS em `app/globals.css` (`:root`) que os componentes consomem via `var(--chart-1)`..`var(--chart-5)`, `--chart-background/foreground/foreground-muted/label`, mapeadas pra combinar com a paleta já usada no dashboard (âmbar `#f59e0b` = pendentes, esmeralda `#10b981` = concluídos). Também um bloco `@theme inline` mapeando `--color-foreground`, `--color-muted`, `--color-chart-label` pro Tailwind v4 gerar as utilities `text-foreground`, `bg-muted`, `text-chart-label` que o componente usa (o projeto não tinha esses tokens antes).
+
+### Achado durante a verificação (não é bug — foi erro de metodologia de teste)
+
+Ao testar via Playwright headless, o donut apareceu **quebrado** (fragmentos em vez de anel) em capturas de tela feitas ~2.5s depois do dashboard carregar. Investigação mostrou que a animação de entrada da lib (`useMountProgress`, tween de ~1.1s + stagger por fatia) simplesmente ainda não tinha terminado — em Chromium headless via Playwright ela roda visivelmente mais devagar que num browser normal em foreground. Esperando 10s a mais, o anel renderiza perfeitamente (âmbar/esmeralda, total no centro, sem erros de console). **Não mexer no código da lib achando que isso é bug** — é só a animação de entrada (visualmente correta pro usuário real).
+
+### Se for vendorizar outro componente do Bklit no futuro
+
+Repetir o mesmo processo: `curl https://bklit.com/r/<nome>.json`, resolver `registryDependencies` recursivamente, extrair `files[].content` pros `target` paths, instalar as `dependencies` npm listadas, e checar se o componente usa mais alguma CSS var/utility Tailwind que ainda não existe em `globals.css`.

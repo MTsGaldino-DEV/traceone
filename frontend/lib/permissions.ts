@@ -20,3 +20,7 @@ export const roleLabels: Record<Role, string> = {
 };
 
 export const assignableRoles: Role[] = ["GESTOR", "SUPERVISOR", "ALMOXARIFADO", "DESPACHANTE"];
+
+// Todo usuário novo é criado com essa senha temporária; ele troca pela
+// própria senha via "Primeiro acesso" na tela de login.
+export const DEFAULT_PASSWORD = "123456";

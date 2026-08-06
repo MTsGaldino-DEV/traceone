@@ -11,10 +11,12 @@ import {
   Users,
   LogOut,
   ChevronRight,
+  KeyRound,
+  X,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import type { Profile } from "../../lib/supabase";
-import { logout } from "../../lib/api";
+import { logout, changeOwnPassword } from "../../lib/api";
 import { canManageUsers, roleLabels } from "../../lib/permissions";
 
 const navItems = [
@@ -84,6 +86,49 @@ export default function DashboardLayout({
   const displayName = profile?.name ?? "Usuário";
   const displayRole = profile?.role ? (roleLabels[profile.role] ?? profile.role) : "Carregando...";
 
+  // Trocar a própria senha
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [changingPassword, setChangingPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+  const [passwordSuccess, setPasswordSuccess] = useState(false);
+
+  const closePasswordModal = () => {
+    setShowPasswordModal(false);
+    setCurrentPassword("");
+    setNewPassword("");
+    setConfirmPassword("");
+    setPasswordError("");
+    setPasswordSuccess(false);
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError("");
+
+    if (newPassword.length < 6) {
+      setPasswordError("A nova senha deve ter pelo menos 6 caracteres.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("As senhas não coincidem.");
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      await changeOwnPassword(currentPassword, newPassword);
+      setPasswordSuccess(true);
+      setTimeout(closePasswordModal, 1500);
+    } catch (err: unknown) {
+      setPasswordError(err instanceof Error ? err.message : "Erro ao trocar senha.");
+    } finally {
+      setChangingPassword(false);
+    }
+  };
+
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden">
       {/* ── Sidebar ── */}
@@ -150,6 +195,13 @@ export default function DashboardLayout({
               <p className="text-xs text-blue-200/60">{displayRole}</p>
             </div>
             <button
+              onClick={() => setShowPasswordModal(true)}
+              title="Alterar senha"
+              className="p-1.5 rounded-md text-blue-200/60 hover:text-white hover:bg-white/10 transition-colors"
+            >
+              <KeyRound size={15} />
+            </button>
+            <button
               onClick={handleLogout}
               title="Sair"
               className="p-1.5 rounded-md text-blue-200/60 hover:text-red-400 hover:bg-red-500/20 transition-colors"
@@ -175,6 +227,85 @@ export default function DashboardLayout({
 
         <div className="flex-1 overflow-y-auto">{children}</div>
       </main>
+
+      {/* ── Modal: Alterar senha ── */}
+      {showPasswordModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
+            <div className="flex items-center justify-between p-5 border-b border-[#f1f5f9]">
+              <h3 className="text-sm font-bold text-[#0f172a]">Alterar Senha</h3>
+              <button onClick={closePasswordModal} className="text-[#9ca3af] hover:text-[#374151]">
+                <X size={16} />
+              </button>
+            </div>
+
+            <form onSubmit={handleChangePassword} className="p-5 space-y-3">
+              {passwordError && (
+                <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {passwordError}
+                </div>
+              )}
+              {passwordSuccess && (
+                <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
+                  Senha alterada com sucesso!
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs text-[#64748b] block mb-1">Senha atual</label>
+                <input
+                  type="password"
+                  required
+                  autoComplete="current-password"
+                  value={currentPassword}
+                  onChange={(e) => setCurrentPassword(e.target.value)}
+                  className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[#64748b] block mb-1">Nova senha</label>
+                <input
+                  type="password"
+                  required
+                  minLength={6}
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[#64748b] block mb-1">Confirmar nova senha</label>
+                <input
+                  type="password"
+                  required
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={closePasswordModal}
+                  className="px-4 py-2 text-xs font-medium text-[#64748b] border border-[#e5e7eb] rounded-lg hover:bg-[#f9fafb] transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={changingPassword}
+                  className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  {changingPassword ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

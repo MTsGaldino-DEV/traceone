@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireManager } from "../../../lib/api-auth";
 import type { Role } from "../../../lib/supabase";
+import { DEFAULT_PASSWORD } from "../../../lib/permissions";
 
 export async function GET(req: NextRequest) {
   const auth = await requireManager(req);
@@ -38,9 +39,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Campos obrigatórios: name, email, role" }, { status: 400 });
   }
 
-  const { error } = await auth.admin!.auth.admin.inviteUserByEmail(email, {
-    data: { name, role },
-    redirectTo: `${req.nextUrl.origin}/reset-senha`,
+  // Todo usuário novo nasce com a senha temporária padrão. Ele mesmo troca
+  // pela própria senha na tela de login, usando "Primeiro acesso".
+  const { error } = await auth.admin!.auth.admin.createUser({
+    email,
+    password: DEFAULT_PASSWORD,
+    email_confirm: true,
+    user_metadata: { name, role },
   });
 
   if (error) {

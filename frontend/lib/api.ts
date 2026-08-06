@@ -349,13 +349,8 @@ export async function runMatchMedidores(): Promise<MatchCandidato[]> {
 
 // ─── Users/Profiles (Gestão de Usuários — ADMIN, GESTOR, SUPERVISOR) ─────────
 
-export async function getUsers(): Promise<Profile[]> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .order('name');
-  if (error) throw new Error(error.message);
-  return (data ?? []) as Profile[];
+export interface UserWithEmail extends Profile {
+  email: string;
 }
 
 async function authHeader(): Promise<Record<string, string>> {
@@ -364,10 +359,18 @@ async function authHeader(): Promise<Record<string, string>> {
   return { Authorization: `Bearer ${session.access_token}` };
 }
 
+export async function getUsersWithEmail(): Promise<UserWithEmail[]> {
+  const res = await fetch('/api/users', { headers: await authHeader() });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? 'Falha ao carregar usuários');
+  return data.users as UserWithEmail[];
+}
+
+// Cria o usuário e envia um convite por email — o próprio usuário define a senha
+// ao clicar no link. O admin nunca sabe/define a senha de ninguém.
 export async function createUser(payload: {
   name: string;
   email: string;
-  password: string;
   role: Profile['role'];
 }): Promise<void> {
   const res = await fetch('/api/users', {
@@ -379,6 +382,19 @@ export async function createUser(payload: {
   if (!res.ok) throw new Error(data.error ?? 'Falha ao criar usuário');
 }
 
+export async function updateUserProfile(
+  id: string,
+  patch: { name?: string; email?: string; role?: Profile['role']; is_active?: boolean }
+): Promise<void> {
+  const res = await fetch(`/api/users/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    body: JSON.stringify(patch),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? 'Falha ao atualizar usuário');
+}
+
 export async function deleteUser(id: string): Promise<void> {
   const res = await fetch(`/api/users/${id}`, {
     method: 'DELETE',
@@ -388,18 +404,28 @@ export async function deleteUser(id: string): Promise<void> {
   if (!res.ok) throw new Error(data.error ?? 'Falha ao excluir usuário');
 }
 
-export async function updateUserRole(
-  id: string,
-  patch: Partial<Pick<Profile, 'name' | 'role' | 'is_active'>>
-): Promise<Profile> {
-  const { data, error } = await supabase
-    .from('profiles')
-    .update(patch)
-    .eq('id', id)
-    .select()
-    .single();
+// Envia um email com link de redefinição de senha (usado tanto pelo "Esqueci
+// minha senha" no login quanto pelo admin, na tela de Gestão de Usuários).
+export async function requestPasswordReset(email: string): Promise<void> {
+  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: `${window.location.origin}/reset-senha`,
+  });
   if (error) throw new Error(error.message);
-  return data as Profile;
+}
+
+// Troca da própria senha: reautentica com a senha atual antes de aplicar a nova.
+export async function changeOwnPassword(currentPassword: string, newPassword: string): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user?.email) throw new Error('Sessão inválida');
+
+  const { error: reauthError } = await supabase.auth.signInWithPassword({
+    email: user.email,
+    password: currentPassword,
+  });
+  if (reauthError) throw new Error('Senha atual incorreta');
+
+  const { error } = await supabase.auth.updateUser({ password: newPassword });
+  if (error) throw new Error(error.message);
 }
 
 // ─── Anti-Duplicidade / Reatribuição ─────────────────────────────────────────

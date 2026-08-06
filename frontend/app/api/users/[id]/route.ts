@@ -1,30 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createAdminClient } from "../../../../lib/supabase-admin";
+import { requireManager } from "../../../../lib/api-auth";
 import type { Role } from "../../../../lib/supabase";
 
-const MANAGER_ROLES: Role[] = ["ADMIN", "GESTOR", "SUPERVISOR"];
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireManager(req);
+  if (auth.error) return auth.error;
 
-async function requireManager(req: NextRequest) {
-  const authHeader = req.headers.get("authorization") ?? "";
-  const token = authHeader.replace(/^Bearer\s+/i, "");
-  if (!token) return { error: NextResponse.json({ error: "Não autenticado" }, { status: 401 }) };
+  const { id } = await params;
+  const body = await req.json();
+  const { name, email, role, is_active } = body as {
+    name?: string;
+    email?: string;
+    role?: Role;
+    is_active?: boolean;
+  };
 
-  const admin = createAdminClient();
-  const { data: { user }, error: userError } = await admin.auth.getUser(token);
-  if (userError || !user) {
-    return { error: NextResponse.json({ error: "Sessão inválida" }, { status: 401 }) };
+  if (email) {
+    const { error } = await auth.admin!.auth.admin.updateUserById(id, {
+      email,
+      email_confirm: true,
+    });
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  const { data: profile, error: profileError } = await admin
-    .from("profiles")
-    .select("role")
-    .eq("id", user.id)
-    .single();
-  if (profileError || !profile || !MANAGER_ROLES.includes(profile.role as Role)) {
-    return { error: NextResponse.json({ error: "Sem permissão" }, { status: 403 }) };
+  const profilePatch: { name?: string; role?: Role; is_active?: boolean } = {};
+  if (name !== undefined) profilePatch.name = name;
+  if (role !== undefined) profilePatch.role = role;
+  if (is_active !== undefined) profilePatch.is_active = is_active;
+
+  if (Object.keys(profilePatch).length > 0) {
+    const { error } = await auth.admin!.from("profiles").update(profilePatch).eq("id", id);
+    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   }
 
-  return { admin };
+  return NextResponse.json({ ok: true });
 }
 
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

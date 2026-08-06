@@ -4,6 +4,24 @@
 :root {
   --background: #f8fafc;
   --foreground: #0f172a;
+
+  /* Tokens dos componentes de gráfico (components/charts/*) */
+  --chart-background: #ffffff;
+  --chart-foreground: #0f172a;
+  --chart-foreground-muted: #64748b;
+  --chart-label: #94a3b8;
+  --chart-1: #f59e0b;
+  --chart-2: #10b981;
+  --chart-3: #3b82f6;
+  --chart-4: #a855f7;
+  --chart-5: #ef4444;
+  --muted: #f1f5f9;
+}
+
+@theme inline {
+  --color-foreground: var(--chart-foreground);
+  --color-muted: var(--muted);
+  --color-chart-label: var(--chart-label);
 }
 
 body {

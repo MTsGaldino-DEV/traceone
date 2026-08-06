@@ -9,10 +9,31 @@
  */
 
 import { createClient } from '@supabase/supabase-js';
+import * as fs from 'fs';
+import * as path from 'path';
 
-const SUPABASE_URL = 'https://ctlaygzndbaojxpwqsco.supabase.co';
-const SERVICE_ROLE_KEY =
-  'SERVICE_ROLE_KEY_REMOVED';
+function loadEnv(): Record<string, string> {
+  const envPath = path.resolve(__dirname, '../frontend/.env.local');
+  if (!fs.existsSync(envPath)) {
+    throw new Error(`Arquivo .env.local não encontrado em ${envPath}`);
+  }
+  const env: Record<string, string> = {};
+  fs.readFileSync(envPath, 'utf8').split('\n').forEach(line => {
+    const match = line.match(/^([^=#][^=]*)=(.*)$/);
+    if (match) env[match[1].trim()] = match[2].trim();
+  });
+  return env;
+}
+
+const env = loadEnv();
+
+const SUPABASE_URL = env.NEXT_PUBLIC_SUPABASE_URL;
+const SERVICE_ROLE_KEY = env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
+  console.error('❌ NEXT_PUBLIC_SUPABASE_URL ou SUPABASE_SERVICE_ROLE_KEY não definidos em frontend/.env.local');
+  process.exit(1);
+}
 
 // O cliente com service_role bypassa RLS e tem acesso ao auth.admin
 const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, {

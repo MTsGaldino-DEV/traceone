@@ -1,6 +1,5 @@
 -- =============================================================================
--- TraceOne — 001_initial_schema.sql
--- Colar no SQL Editor do Supabase e executar
+-- TraceOne — 001_initial_schema.sql (Módulo Medidores)
 -- =============================================================================
 
 -- Extensão para UUID
@@ -10,11 +9,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 -- ENUMS
 -- =============================================================================
 CREATE TYPE role_type AS ENUM ('ADMIN', 'ALMOXARIFE', 'GESTOR');
-CREATE TYPE item_type AS ENUM ('CONSUMABLE', 'ASSET');
-CREATE TYPE item_status AS ENUM ('ACTIVE', 'INACTIVE', 'DISCONTINUED');
-CREATE TYPE employee_status AS ENUM ('ACTIVE', 'INACTIVE', 'ON_LEAVE');
-CREATE TYPE movement_type AS ENUM ('DELIVERY', 'RETURN', 'LOSS', 'REPLACEMENT', 'WRITEOFF');
-CREATE TYPE audit_action AS ENUM ('LOGIN', 'CREATE', 'UPDATE', 'DELETE', 'DELIVERY', 'RETURN', 'LOSS', 'WRITEOFF');
+CREATE TYPE status_medidor AS ENUM ('PENDENTE', 'CONCLUIDO');
 
 -- =============================================================================
 -- FUNÇÃO UTILITÁRIA: updated_at automático
@@ -63,112 +58,124 @@ CREATE TRIGGER on_auth_user_created
   FOR EACH ROW EXECUTE FUNCTION handle_new_user();
 
 -- =============================================================================
--- TABELA: employees
+-- TABELA: tipos_de_medidores (catálogo fixo)
 -- =============================================================================
-CREATE TABLE employees (
-  id           UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name         TEXT NOT NULL,
-  registration TEXT NOT NULL UNIQUE,
-  job_title    TEXT NOT NULL,
-  sector       TEXT NOT NULL,
-  unit         TEXT NOT NULL,
-  status       employee_status NOT NULL DEFAULT 'ACTIVE',
-  is_active    BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at   TIMESTAMPTZ DEFAULT NOW(),
-  updated_at   TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE tipos_de_medidores (
+  cod_sap     TEXT PRIMARY KEY,
+  tipo        TEXT NOT NULL,
+  ligacao     TEXT NOT NULL CHECK (ligacao IN ('direto', 'indireto')),
+  valor       NUMERIC(10,2) NOT NULL,
+  ativo       BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TRIGGER update_employees_updated_at
-  BEFORE UPDATE ON employees
+CREATE TRIGGER update_tipos_medidores_updated_at
+  BEFORE UPDATE ON tipos_de_medidores
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =============================================================================
--- TABELA: categories
+-- TABELA: colaboradores
 -- =============================================================================
-CREATE TABLE categories (
-  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name        TEXT NOT NULL UNIQUE,
-  description TEXT,
-  is_active   BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at  TIMESTAMPTZ DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE colaboradores (
+  matricula   TEXT PRIMARY KEY,
+  nome        TEXT NOT NULL,
+  supervisor  TEXT,
+  gc          TEXT,
+  go          TEXT,
+  ativo       BOOLEAN NOT NULL DEFAULT TRUE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TRIGGER update_categories_updated_at
-  BEFORE UPDATE ON categories
+-- normaliza matrícula sempre para minúsculo, em qualquer insert/update
+CREATE OR REPLACE FUNCTION normalize_matricula()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.matricula := lower(NEW.matricula);
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_normalize_matricula_colaboradores
+  BEFORE INSERT OR UPDATE ON colaboradores
+  FOR EACH ROW EXECUTE FUNCTION normalize_matricula();
+
+CREATE TRIGGER update_colaboradores_updated_at
+  BEFORE UPDATE ON colaboradores
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- =============================================================================
--- TABELA: items
+-- TABELA: servicos_report
 -- =============================================================================
-CREATE TABLE items (
-  id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  name              TEXT NOT NULL,
-  description       TEXT,
-  type              item_type NOT NULL,
-  category_id       UUID NOT NULL REFERENCES categories(id),
-  -- Consumable fields
-  quantity          INTEGER NOT NULL DEFAULT 0,
-  min_stock         INTEGER NOT NULL DEFAULT 0,
-  lot_number        TEXT,
-  expires_at        TIMESTAMPTZ,
-  unit              TEXT NOT NULL DEFAULT 'un',
-  -- Asset fields
-  patrimony_code    TEXT UNIQUE,
-  serial_number     TEXT,
-  current_holder_id UUID REFERENCES employees(id),
-  -- Common
-  status            item_status NOT NULL DEFAULT 'ACTIVE',
-  is_active         BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at        TIMESTAMPTZ DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE servicos_report (
+  servico     TEXT PRIMARY KEY,
+  matricula   TEXT REFERENCES colaboradores(matricula),
+  termino     TIMESTAMPTZ NOT NULL,
+  cod_serv    TEXT,
+  tipo_serv   TEXT,
+  imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TRIGGER update_items_updated_at
-  BEFORE UPDATE ON items
-  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER trg_normalize_matricula_servicos
+  BEFORE INSERT OR UPDATE ON servicos_report
+  FOR EACH ROW EXECUTE FUNCTION normalize_matricula();
 
 -- =============================================================================
--- TABELA: stock_movements
+-- TABELA: medidores_list (tabela principal)
 -- =============================================================================
-CREATE TABLE stock_movements (
-  id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  type                  movement_type NOT NULL,
-  item_id               UUID NOT NULL REFERENCES items(id),
-  employee_id           UUID REFERENCES employees(id),
-  user_id               UUID NOT NULL REFERENCES profiles(id),
-  quantity              INTEGER NOT NULL DEFAULT 1,
-  notes                 TEXT,
-  -- Snapshot fields (preserved even if item/employee changes)
-  item_name             TEXT NOT NULL,
-  employee_name         TEXT,
-  employee_registration TEXT,
-  created_at            TIMESTAMPTZ DEFAULT NOW()
+CREATE TABLE medidores_list (
+  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  data            DATE NOT NULL,                     -- data de atribuição
+  material_sap    TEXT NOT NULL REFERENCES tipos_de_medidores(cod_sap),
+  serial          TEXT NOT NULL,
+  matricula       TEXT NOT NULL REFERENCES colaboradores(matricula),
+  servico_gdis    TEXT REFERENCES servicos_report(servico),  -- preenchido pelo matching
+  status          status_medidor NOT NULL DEFAULT 'PENDENTE',
+  data_conclusao  DATE,
+  servico_campo   TEXT,
+  equipe          TEXT,
+  atualizacao     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- =============================================================================
--- TABELA: audits
--- =============================================================================
-CREATE TABLE audits (
-  id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  user_id    UUID NOT NULL REFERENCES profiles(id),
-  action     audit_action NOT NULL,
-  entity     TEXT NOT NULL,
-  entity_id  UUID,
-  details    JSONB,
-  ip         TEXT,
-  created_at TIMESTAMPTZ DEFAULT NOW()
-);
+CREATE TRIGGER trg_normalize_matricula_medidores
+  BEFORE INSERT OR UPDATE ON medidores_list
+  FOR EACH ROW EXECUTE FUNCTION normalize_matricula();
+
+CREATE OR REPLACE FUNCTION set_atualizacao()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.atualizacao = now();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_touch_atualizacao
+  BEFORE UPDATE ON medidores_list
+  FOR EACH ROW EXECUTE PROCEDURE set_atualizacao();
 
 -- =============================================================================
--- ÍNDICES para performance
+-- VIEW: vw_medidores_completo
 -- =============================================================================
-CREATE INDEX idx_stock_movements_item_id     ON stock_movements(item_id);
-CREATE INDEX idx_stock_movements_employee_id ON stock_movements(employee_id);
-CREATE INDEX idx_stock_movements_user_id     ON stock_movements(user_id);
-CREATE INDEX idx_stock_movements_created_at  ON stock_movements(created_at DESC);
-CREATE INDEX idx_audits_user_id              ON audits(user_id);
-CREATE INDEX idx_audits_created_at           ON audits(created_at DESC);
-CREATE INDEX idx_items_category_id           ON items(category_id);
-CREATE INDEX idx_items_type                  ON items(type);
-CREATE INDEX idx_items_is_active             ON items(is_active);
+CREATE OR REPLACE VIEW vw_medidores_completo AS
+SELECT
+  ml.id,
+  ml.data                                   AS "Data",
+  ml.material_sap                           AS "Material SAP",
+  ml.serial                                 AS "Serial",
+  ml.matricula                              AS "MATRICULA",
+  c.nome                                    AS "COLABORADOR",
+  c.supervisor                              AS "SUPERVISOR",
+  ml.servico_gdis                           AS "SERVIÇO GDIS",
+  ml.status                                 AS "Concluído/Pendente",
+  t.valor                                   AS "VALOR",
+  t.tipo                                    AS "EQUIPAMENTO",
+  (COALESCE(ml.data_conclusao, CURRENT_DATE) - ml.data) AS "DIAS DE ATRIBUIÇÃO",
+  ml.data_conclusao                         AS "Data da conclusão",
+  ml.atualizacao                            AS "ATUALIZAÇÃO",
+  ml.servico_campo                          AS "SERVIÇO CAMPO",
+  ml.equipe                                 AS "EQUIPE"
+FROM medidores_list ml
+JOIN colaboradores c ON c.matricula = ml.matricula
+JOIN tipos_de_medidores t ON t.cod_sap = ml.material_sap;

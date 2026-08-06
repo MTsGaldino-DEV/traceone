@@ -1,0 +1,26 @@
+COD. SAP;TIPO;ligacao; R$ 
+380231;Acessante;direto;93,67
+383150;Monofasico Lcd;direto;40,14
+383151;Bifasico Lcd;direto;90,1
+383152;Trifasico Lcd;direto;95,47
+242206;Tc 200;indireto ;191,33
+319525;Rural Eletronico  Irrigantte Bidirecional;direto;440,08
+242818;Tc 400;indireto ;274,78
+380230;Acessante;indireto ;573,8
+319392;Medidor Digital 28 0v 2,5a Pc Irrigante Bidirecional;indireto ;564,49
+376701;Trifasico Eletronico;direto;50,14
+376874;Medidor Indireto Eletronico;indireto ;131,24
+378257;Monofasico Eletronico ;direto;17,65
+376700;Bifasico Eletronico ;direto;47,27
+376872;Medidor Eletr�nico Kwh/Kvarh 15a 3e Pc;direto;146,45
+320069;Medidor Eletr�nico Kwh/Kvarh 15a 3e Mm;direto;168,69
+376873;Medidor Eletr�nico Trifasico Bidirecional 30a 3e 200a Pc;direto;538,97
+326751;Medidor Eletr�nico Trif�sico Pc 692,87;indireto ;1.417,11
+377205;Medidor Eletr�nico ,Monofasico Rural,240v,;direto;57,14
+306225;Chave Aferi��o 600v;indireto ;296,2
+383894;MEDIDOR,ELETR�NICO,30A,Im�x 200A,kW,kWh,;direto;366,66
+380971;MEDIDOR,TB TRIF 4F DIR 15/120A BID RF CR;direto;422,08
+242198;TRANSFORMADOR,CORRENTE,0,6kV,600-5A,60Hz;indireto ;338,23
+376699;MEDIDOR,ELETR�NICO,kWh,120V,15A,2 FIOS,M;direto;7,61
+388485;MEDIDOR TELEMETRIA;direto;252,02
+388486;MEDIDOR INTEL NBIoT kWh KVArh 3F 2,5A CL;indireto ;0

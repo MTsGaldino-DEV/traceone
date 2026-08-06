@@ -13,12 +13,15 @@ import {
   ChevronRight,
   Clock,
   SearchCheck,
+  Pencil,
+  Undo2,
 } from "lucide-react";
 import {
   getServicosConferencia,
   getServicosAguardandoVinculacao,
   verificarVinculacoesPendentes,
   vincularServicoMedidor,
+  reverterServicoPendente,
 } from "../../../../lib/api";
 import type {
   ServicoReportConferencia,
@@ -241,41 +244,141 @@ function ConferenciaRow({
 }
 
 // ─── Linha da tabela de Aguardando Vinculação ─────────────────────────────────
-function AguardandoRow({ servico }: { servico: ServicoReportAguardando }) {
+interface AguardandoRowProps {
+  servico: ServicoReportAguardando;
+  onVinculado: (servicoId: string) => void;
+  onRevertido: (servicoId: string) => void;
+  addToast: (type: "success" | "error" | "info", text: string) => void;
+}
+
+function AguardandoRow({ servico, onVinculado, onRevertido, addToast }: AguardandoRowProps) {
+  const [editando, setEditando] = useState(false);
+  const [novoSerial, setNovoSerial] = useState(servico.serial_buscado);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
   const terminoFormatado = (() => {
-    try {
-      return new Date(servico.termino).toLocaleDateString("pt-BR");
-    } catch {
-      return servico.termino;
-    }
+    try { return new Date(servico.termino).toLocaleDateString("pt-BR"); } catch { return servico.termino; }
   })();
 
   const importadoFormatado = (() => {
-    try {
-      return new Date(servico.imported_at).toLocaleDateString("pt-BR");
-    } catch {
-      return servico.imported_at;
-    }
+    try { return new Date(servico.imported_at).toLocaleDateString("pt-BR"); } catch { return servico.imported_at; }
   })();
+
+  const handleEditar = () => {
+    setNovoSerial(servico.serial_buscado);
+    setErro(null);
+    setEditando(true);
+    setTimeout(() => inputRef.current?.select(), 50);
+  };
+
+  const handleCorrigir = async () => {
+    const s = novoSerial.trim();
+    if (!s || s === servico.serial_buscado) { setEditando(false); return; }
+    setSalvando(true);
+    setErro(null);
+    try {
+      const result = await vincularServicoMedidor(servico.servico, s);
+      if (result.ok) {
+        if (result.aguardando) {
+          addToast("info", `Serial atualizado para ${s}. Ainda aguardando entrada no sistema.`);
+          servico.serial_buscado = s; // atualiza localmente
+          setEditando(false);
+        } else {
+          addToast("success", `✅ ${result.nome ?? result.serial} vinculado ao serviço ${servico.servico}`);
+          onVinculado(servico.servico);
+        }
+      } else {
+        setErro(result.error ?? "Erro desconhecido.");
+      }
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Erro ao vincular.");
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  const handleReverter = async () => {
+    setSalvando(true);
+    setErro(null);
+    try {
+      await reverterServicoPendente(servico.servico);
+      addToast("info", `Serviço ${servico.servico} retornou para a fila de conferência.`);
+      onRevertido(servico.servico);
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Erro ao reverter.");
+      setSalvando(false);
+    }
+  };
 
   return (
     <tr className="border-b border-amber-100 hover:bg-amber-50/30 transition-colors">
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className="font-mono text-sm font-bold text-slate-800">
-          {servico.servico}
-        </span>
+        <span className="font-mono text-sm font-bold text-slate-800">{servico.servico}</span>
         <span className="block text-xs text-slate-400 font-mono">{terminoFormatado}</span>
       </td>
+
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-100 text-amber-800 text-xs font-mono font-bold rounded-md border border-amber-200">
-          {servico.serial_buscado}
-        </span>
+        {editando ? (
+          <div className="flex items-center gap-1.5">
+            <input
+              ref={inputRef}
+              type="text"
+              value={novoSerial}
+              onChange={(e) => { setNovoSerial(e.target.value); setErro(null); }}
+              onKeyDown={(e) => { if (e.key === "Enter") handleCorrigir(); if (e.key === "Escape") setEditando(false); }}
+              className="w-40 px-2 py-1 border border-blue-400 rounded-lg text-xs font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
+            />
+            <button
+              onClick={handleCorrigir}
+              disabled={salvando || !novoSerial.trim()}
+              className="px-2.5 py-1 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
+            >
+              {salvando ? <Loader2 size={11} className="animate-spin" /> : <Link2 size={11} />}
+              {salvando ? "…" : "OK"}
+            </button>
+            <button onClick={() => setEditando(false)} className="p-1 text-slate-400 hover:text-slate-600 rounded">
+              <X size={13} />
+            </button>
+          </div>
+        ) : (
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-100 text-amber-800 text-xs font-mono font-bold rounded-md border border-amber-200">
+            {servico.serial_buscado}
+          </span>
+        )}
+        {erro && <p className="text-[11px] text-red-600 mt-1 font-semibold">{erro}</p>}
       </td>
+
       <td className="px-4 py-3 text-xs text-slate-600 font-mono whitespace-nowrap">
         {servico.matricula ?? <span className="text-slate-300">—</span>}
       </td>
+
       <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
         {importadoFormatado}
+      </td>
+
+      <td className="px-3 py-3 whitespace-nowrap">
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handleEditar}
+            disabled={salvando || editando}
+            title="Corrigir serial"
+            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-40 transition-colors"
+          >
+            <Pencil size={11} />
+            Corrigir
+          </button>
+          <button
+            onClick={handleReverter}
+            disabled={salvando || editando}
+            title="Voltar para fila de conferência"
+            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 bg-slate-50 border border-slate-200 rounded-lg hover:bg-slate-100 disabled:opacity-40 transition-colors"
+          >
+            {salvando ? <Loader2 size={11} className="animate-spin" /> : <Undo2 size={11} />}
+            Reverter
+          </button>
+        </div>
       </td>
     </tr>
   );
@@ -359,7 +462,6 @@ export default function ConferenciaPage() {
 
   const handleAguardando = useCallback(
     (servicoId: string) => {
-      // Remove da lista de PENDENTES e recarrega AGUARDANDO
       setServicos((prev) => prev.filter((s) => s.servico !== servicoId));
       setTotalServicos((t) => Math.max(0, t - 1));
       setTotalAguardando((t) => t + 1);
@@ -367,6 +469,18 @@ export default function ConferenciaPage() {
     },
     [loadAguardando, pageAguardando]
   );
+
+  const handleVinculadoDeAguardando = useCallback((servicoId: string) => {
+    setAguardando((prev) => prev.filter((s) => s.servico !== servicoId));
+    setTotalAguardando((t) => Math.max(0, t - 1));
+  }, []);
+
+  const handleRevertido = useCallback((servicoId: string) => {
+    setAguardando((prev) => prev.filter((s) => s.servico !== servicoId));
+    setTotalAguardando((t) => Math.max(0, t - 1));
+    setTotalServicos((t) => t + 1);
+    loadServicos(pageServicos);
+  }, [loadServicos, pageServicos]);
 
   const handleVerificar = async () => {
     setVerificando(true);
@@ -628,11 +742,20 @@ export default function ConferenciaPage() {
                       <th className="px-4 py-2.5 text-left text-xs font-bold text-amber-700 uppercase tracking-wide">
                         Importado em
                       </th>
+                      <th className="px-3 py-2.5 text-left text-xs font-bold text-amber-700 uppercase tracking-wide">
+                        Ações
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
                     {aguardando.map((s) => (
-                      <AguardandoRow key={s.servico} servico={s} />
+                      <AguardandoRow
+                        key={s.servico}
+                        servico={s}
+                        onVinculado={handleVinculadoDeAguardando}
+                        onRevertido={handleRevertido}
+                        addToast={addToast}
+                      />
                     ))}
                   </tbody>
                 </table>

@@ -1,0 +1,704 @@
+"use client";
+
+import { useState, useRef, useCallback } from "react";
+import { useRouter } from "next/navigation";
+import {
+  UploadCloud,
+  FileText,
+  CheckCircle2,
+  AlertTriangle,
+  Loader2,
+  X,
+  Table2,
+  ArrowRight,
+  RefreshCw,
+  Trash2,
+  ArrowLeftRight,
+  GitCompare,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
+import * as XLSX from "xlsx";
+import { importServicos, getMedidoresParaSync, syncAtribuicoes } from "../../../../lib/api";
+import type { MedidorParaSync } from "../../../../lib/api";
+
+// ═══════════════════════════════════════════════════════════════════
+// SEÇÃO GDIS — tipos e lógica
+// ═══════════════════════════════════════════════════════════════════
+
+interface ParsedServico {
+  servico: string;
+  matricula?: string;
+  termino: string;
+  cod_serv?: string;
+  tipo_serv?: string;
+}
+
+interface ParseResult {
+  rows: ParsedServico[];
+  errors: string[];
+}
+
+const COL_ALIASES: Record<string, string> = {
+  servico: "servico", "serviço": "servico", "servico gdis": "servico",
+  "nº serviço": "servico", "numero servico": "servico", "n servico": "servico",
+  matricula: "matricula", "matrícula": "matricula",
+  termino: "termino", "término": "termino", "data conclusao": "termino",
+  "data conclusão": "termino", conclusao: "termino", "conclusão": "termino",
+  "cod serv": "cod_serv", cod_serv: "cod_serv", "codigo servico": "cod_serv",
+  "código serviço": "cod_serv",
+  "tipo serv": "tipo_serv", tipo_serv: "tipo_serv", "tipo servico": "tipo_serv",
+  "tipo serviço": "tipo_serv",
+};
+
+function normalizeHeader(h: string): string {
+  return h.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^a-z0-9 _]/g, "").trim();
+}
+
+function parseDateGdis(raw: unknown): string | null {
+  if (!raw) return null;
+  if (typeof raw === "number") {
+    const d = new Date(Math.round((raw - 25569) * 864e5));
+    return d.toISOString();
+  }
+  const str = String(raw).trim();
+  const dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}T00:00:00Z`;
+  const ymd = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymd) return `${str.slice(0, 10)}T00:00:00Z`;
+  const t = new Date(str);
+  if (!isNaN(t.getTime())) return t.toISOString();
+  return null;
+}
+
+function parseGdisWorkbook(buffer: ArrayBuffer): ParseResult {
+  const wb = XLSX.read(buffer, { type: "array" });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as unknown[][];
+  const errors: string[] = [];
+  const rows: ParsedServico[] = [];
+
+  let headerIdx = -1;
+  let headers: string[] = [];
+  for (let i = 0; i < Math.min(data.length, 30); i++) {
+    const row = data[i];
+    if (!Array.isArray(row)) continue;
+    const normalized = row.map((cell) => (cell ? normalizeHeader(String(cell)) : ""));
+    if (normalized.some((h) => COL_ALIASES[h] === "servico")) {
+      headerIdx = i;
+      headers = normalized;
+      break;
+    }
+  }
+
+  if (headerIdx === -1) {
+    return { rows: [], errors: ["Não foi possível encontrar a coluna 'Serviço' nas primeiras 30 linhas."] };
+  }
+
+  const colMap: Record<string, number> = {};
+  headers.forEach((h, idx) => {
+    const mapped = COL_ALIASES[h];
+    if (mapped && !(mapped in colMap)) colMap[mapped] = idx;
+  });
+
+  if (!("servico" in colMap)) return { rows: [], errors: ["Coluna 'Serviço' não encontrada."] };
+  if (!("termino" in colMap)) return { rows: [], errors: ["Coluna de data de término não encontrada."] };
+
+  for (let i = headerIdx + 1; i < data.length; i++) {
+    const rowData = data[i] as unknown[];
+    if (!Array.isArray(rowData) || rowData.length === 0) continue;
+    const rawServico = rowData[colMap["servico"]];
+    if (!rawServico) continue;
+    const servico = String(rawServico).trim();
+    if (!servico) continue;
+    const termino = parseDateGdis(rowData[colMap["termino"]]);
+    if (!termino) {
+      errors.push(`Linha ${i + 1}: data de término inválida — ignorada.`);
+      continue;
+    }
+    const mat = colMap["matricula"] !== undefined ? rowData[colMap["matricula"]] : undefined;
+    const cod = colMap["cod_serv"] !== undefined ? rowData[colMap["cod_serv"]] : undefined;
+    const tipo = colMap["tipo_serv"] !== undefined ? rowData[colMap["tipo_serv"]] : undefined;
+    rows.push({
+      servico,
+      matricula: mat ? String(mat).trim() : undefined,
+      termino,
+      cod_serv: cod ? String(cod).trim() : undefined,
+      tipo_serv: tipo ? String(tipo).trim() : undefined,
+    });
+  }
+  return { rows, errors };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// SEÇÃO ATRIBUIÇÕES — tipos e lógica
+// ═══════════════════════════════════════════════════════════════════
+
+interface AtribItem {
+  id: string;
+  serial: string;
+  detail: string;
+  patch?: { matricula?: string; material_sap?: string; data?: string };
+}
+
+interface SyncReport {
+  devolvidos: AtribItem[];    // delete
+  reatribuicoes: AtribItem[]; // matricula mudou
+  divergencias: AtribItem[];  // material/data diverge
+}
+
+function parseDateAtrib(s: string): string | null {
+  if (!s) return null;
+  const dmy = s.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+  return null;
+}
+
+function buildSyncReport(
+  planilhaRows: { serial: string; material: string; matricula: string | null; data: string | null }[],
+  dbMap: Map<string, MedidorParaSync>
+): SyncReport {
+  const devolvidos: AtribItem[] = [];
+  const reatribuicoes: AtribItem[] = [];
+  const divergencias: AtribItem[] = [];
+
+  for (const row of planilhaRows) {
+    const db = dbMap.get(row.serial);
+    if (!db) continue; // não é nosso cadastro
+
+    if (!row.matricula) {
+      devolvidos.push({ id: db.id, serial: row.serial, detail: `Recebedor vazio — será excluído` });
+      continue;
+    }
+
+    const patch: { matricula?: string; material_sap?: string; data?: string } = {};
+    let reatrib = false;
+    let diverg = false;
+
+    if (row.matricula !== db.matricula) {
+      patch.matricula = row.matricula;
+      reatrib = true;
+    }
+    if (row.material && row.material !== db.material_sap) {
+      patch.material_sap = row.material;
+      diverg = true;
+    }
+    if (row.data && row.data !== db.data) {
+      patch.data = row.data;
+      diverg = true;
+    }
+
+    if (reatrib) {
+      reatribuicoes.push({
+        id: db.id, serial: row.serial, patch,
+        detail: `${db.matricula} → ${row.matricula}`,
+      });
+    }
+    if (diverg) {
+      const parts: string[] = [];
+      if (patch.material_sap) parts.push(`Material: ${db.material_sap} → ${patch.material_sap}`);
+      if (patch.data) parts.push(`Data: ${db.data} → ${patch.data}`);
+      divergencias.push({
+        id: db.id, serial: row.serial, patch,
+        detail: parts.join(" | "),
+      });
+    }
+  }
+
+  return { devolvidos, reatribuicoes, divergencias };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// COMPONENTES AUXILIARES
+// ═══════════════════════════════════════════════════════════════════
+
+function CollapsibleList({
+  title, count, color, items,
+}: {
+  title: string; count: number; color: string; items: { serial: string; detail: string }[];
+}) {
+  const [open, setOpen] = useState(false);
+  if (count === 0) return null;
+  return (
+    <div className={`rounded-xl border overflow-hidden ${color}`}>
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="text-sm font-bold">{title} <span className="font-black">({count})</span></span>
+        {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+      </button>
+      {open && (
+        <div className="border-t border-current/10 max-h-48 overflow-y-auto divide-y divide-current/10">
+          {items.map((item) => (
+            <div key={item.serial} className="px-4 py-2 text-xs flex gap-3">
+              <span className="font-mono font-semibold shrink-0">{item.serial}</span>
+              <span className="opacity-70 truncate">{item.detail}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ABA GDIS
+// ═══════════════════════════════════════════════════════════════════
+
+function GdisTab() {
+  const router = useRouter();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [parsed, setParsed] = useState<ParseResult | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState<number | null>(null);
+
+  const processFile = useCallback((f: File) => {
+    setFile(f); setParsed(null); setImportError(null); setImportSuccess(null);
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const result = parseGdisWorkbook(e.target?.result as ArrayBuffer);
+        setParsed(result);
+      } catch {
+        setParsed({ rows: [], errors: ["Falha ao ler o arquivo."] });
+      }
+    };
+    reader.readAsArrayBuffer(f);
+  }, []);
+
+  const reset = () => {
+    setFile(null); setParsed(null); setImportError(null); setImportSuccess(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const handleImport = async () => {
+    if (!parsed || parsed.rows.length === 0) return;
+    setImporting(true); setImportError(null);
+    try {
+      await importServicos(parsed.rows);
+      setImportSuccess(parsed.rows.length);
+      setTimeout(() => router.push("/dashboard/conferencia"), 1500);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Erro ao importar.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const hasRows = (parsed?.rows.length ?? 0) > 0;
+
+  return (
+    <div className="space-y-6">
+      {importSuccess !== null && (
+        <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800">
+          <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
+          <div>
+            <p className="text-sm font-bold">Importação concluída!</p>
+            <p className="text-xs text-emerald-600 mt-0.5">
+              {importSuccess} serviço{importSuccess !== 1 ? "s" : ""} importado{importSuccess !== 1 ? "s" : ""}. Redirecionando…
+            </p>
+          </div>
+        </div>
+      )}
+      {importError && (
+        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-800">
+          <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-bold">Erro na importação</p>
+            <p className="text-xs text-red-600 mt-0.5">{importError}</p>
+          </div>
+          <button onClick={() => setImportError(null)} className="text-red-400 hover:text-red-600"><X size={16} /></button>
+        </div>
+      )}
+      {!file ? (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) processFile(f); }}
+          onClick={() => fileInputRef.current?.click()}
+          className={`flex flex-col items-center justify-center gap-4 p-12 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${dragging ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50/50"}`}
+        >
+          <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center">
+            <UploadCloud size={28} className="text-blue-600" />
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-bold text-slate-800">Arraste o arquivo Excel/CSV aqui ou clique</p>
+            <p className="text-xs text-slate-500 mt-1">Suporte: .xlsx, .xls, .csv</p>
+          </div>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }} />
+        </div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="flex items-center gap-3 p-4 border-b border-slate-100 bg-slate-50/50">
+            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
+              <FileText size={18} className="text-blue-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-slate-900 truncate">{file.name}</p>
+              <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</p>
+            </div>
+            <button onClick={reset} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><X size={16} /></button>
+          </div>
+          {parsed ? (
+            <div className="p-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                  <p className="text-2xl font-black text-emerald-700">{parsed.rows.length}</p>
+                  <p className="text-xs font-semibold text-emerald-600 mt-0.5">Serviços válidos</p>
+                </div>
+                <div className={`p-3 border rounded-xl text-center ${parsed.errors.length > 0 ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200"}`}>
+                  <p className={`text-2xl font-black ${parsed.errors.length > 0 ? "text-amber-700" : "text-slate-400"}`}>{parsed.errors.length}</p>
+                  <p className={`text-xs font-semibold mt-0.5 ${parsed.errors.length > 0 ? "text-amber-600" : "text-slate-400"}`}>{parsed.errors.length > 0 ? "Avisos" : "Sem erros"}</p>
+                </div>
+              </div>
+              {parsed.errors.length > 0 && (
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1 max-h-32 overflow-y-auto">
+                  {parsed.errors.map((e, i) => (
+                    <p key={i} className="text-xs text-amber-700 flex items-start gap-1.5">
+                      <AlertTriangle size={12} className="shrink-0 mt-0.5" />{e}
+                    </p>
+                  ))}
+                </div>
+              )}
+              {hasRows && (
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <Table2 size={14} className="text-slate-400" />
+                    <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Pré-visualização (5 primeiras)</span>
+                  </div>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200">
+                          {["Serviço", "Matrícula", "Término", "Cód.", "Tipo"].map((h) => (
+                            <th key={h} className="px-3 py-2 text-left font-bold text-slate-600 whitespace-nowrap">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {parsed.rows.slice(0, 5).map((row, i) => (
+                          <tr key={i} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                            <td className="px-3 py-2 font-mono font-semibold text-slate-800">{row.servico}</td>
+                            <td className="px-3 py-2 font-mono text-slate-600">{row.matricula ?? "—"}</td>
+                            <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{row.termino.slice(0, 10)}</td>
+                            <td className="px-3 py-2 text-slate-600">{row.cod_serv ?? "—"}</td>
+                            <td className="px-3 py-2 text-slate-600">{row.tipo_serv ?? "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {parsed.rows.length > 5 && <p className="text-xs text-slate-400 mt-1 text-right">+ {parsed.rows.length - 5} linhas</p>}
+                </div>
+              )}
+              <div className="flex gap-3 pt-1">
+                <button onClick={reset} disabled={importing} className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 font-semibold text-sm rounded-xl hover:bg-slate-100 transition-colors disabled:opacity-50">Cancelar</button>
+                <button onClick={handleImport} disabled={!hasRows || importing || importSuccess !== null} className="flex-1 px-4 py-2.5 bg-[#1e3a5f] text-white font-bold text-sm rounded-xl hover:bg-[#2d5282] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm">
+                  {importing ? <><Loader2 size={16} className="animate-spin" />Importando…</> : importSuccess !== null ? <><CheckCircle2 size={16} />Importado!</> : <>Importar {parsed.rows.length} serviço{parsed.rows.length !== 1 ? "s" : ""}<ArrowRight size={16} /></>}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-6 flex items-center justify-center gap-2 text-slate-500">
+              <Loader2 size={16} className="animate-spin" /><span className="text-sm">Processando arquivo…</span>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// ABA ATRIBUIÇÕES
+// ═══════════════════════════════════════════════════════════════════
+
+type AtribStage = "idle" | "loading-db" | "ready" | "syncing" | "done" | "error";
+
+function AtribuicoesTab() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [stage, setStage] = useState<AtribStage>("idle");
+  const [report, setReport] = useState<SyncReport | null>(null);
+  const [syncResult, setSyncResult] = useState<{ updated: number; deleted: number } | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [progress, setProgress] = useState("");
+
+  const reset = () => {
+    setFile(null); setStage("idle"); setReport(null);
+    setSyncResult(null); setErrorMsg(null); setProgress("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const processFile = useCallback(async (f: File) => {
+    setFile(f); setStage("loading-db"); setReport(null); setErrorMsg(null); setSyncResult(null);
+    setProgress("Lendo arquivo…");
+
+    let planilhaRows: { serial: string; material: string; matricula: string | null; data: string | null }[];
+    try {
+      const buffer = await f.arrayBuffer();
+      const wb = XLSX.read(buffer, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as unknown[][];
+
+      planilhaRows = [];
+      for (let i = 1; i < rawData.length; i++) {
+        const row = rawData[i] as unknown[];
+        if (!Array.isArray(row) || row.length < 11) continue;
+        const serial = row[2] ? String(row[2]).trim() : "";
+        if (!serial) continue;
+        const material = row[1] ? String(row[1]).trim() : "";
+        const recebedor = row[10] ? String(row[10]).trim().toLowerCase() : null;
+        const dataRaw = row[11] ? String(row[11]).trim() : "";
+        planilhaRows.push({
+          serial,
+          material,
+          matricula: recebedor || null,
+          data: parseDateAtrib(dataRaw),
+        });
+      }
+    } catch (err) {
+      setStage("error");
+      setErrorMsg("Falha ao ler o arquivo. Verifique se é um Excel/CSV válido.");
+      return;
+    }
+
+    setProgress("Buscando medidores no banco de dados…");
+    let dbRecords: MedidorParaSync[];
+    try {
+      dbRecords = await getMedidoresParaSync();
+    } catch (err) {
+      setStage("error");
+      setErrorMsg(err instanceof Error ? err.message : "Erro ao buscar banco.");
+      return;
+    }
+
+    const dbMap = new Map<string, MedidorParaSync>(dbRecords.map((r) => [r.serial, r]));
+    const rep = buildSyncReport(planilhaRows, dbMap);
+    setReport(rep);
+    setStage("ready");
+    setProgress("");
+  }, []);
+
+  const handleSync = async () => {
+    if (!report) return;
+    setStage("syncing");
+    setProgress("Executando sincronização…");
+
+    // Merge patches — um registro pode aparecer em reatribuicoes e divergencias
+    const patchMap = new Map<string, { id: string; patch: Record<string, string> }>();
+    for (const item of [...report.reatribuicoes, ...report.divergencias]) {
+      const existing = patchMap.get(item.id);
+      if (existing) {
+        Object.assign(existing.patch, item.patch ?? {});
+      } else {
+        patchMap.set(item.id, { id: item.id, patch: { ...(item.patch ?? {}) } });
+      }
+    }
+
+    const updates = Array.from(patchMap.values()).map(({ id, patch }) => ({ id, patch }));
+    const deletes = report.devolvidos.map((d) => d.id);
+
+    try {
+      const result = await syncAtribuicoes({ updates, deletes });
+      setSyncResult(result);
+      setStage("done");
+    } catch (err) {
+      setStage("error");
+      setErrorMsg(err instanceof Error ? err.message : "Erro ao sincronizar.");
+    } finally {
+      setProgress("");
+    }
+  };
+
+  const totalChanges = report ? report.devolvidos.length + new Set([...report.reatribuicoes, ...report.divergencias].map((i) => i.id)).size : 0;
+
+  return (
+    <div className="space-y-6">
+      {/* Error banner */}
+      {stage === "error" && errorMsg && (
+        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-800">
+          <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-bold">Erro</p>
+            <p className="text-xs text-red-600 mt-0.5">{errorMsg}</p>
+          </div>
+          <button onClick={reset} className="text-red-400 hover:text-red-600"><X size={16} /></button>
+        </div>
+      )}
+
+      {/* Done banner */}
+      {stage === "done" && syncResult && (
+        <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800">
+          <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-bold">Sincronização concluída!</p>
+            <p className="text-xs text-emerald-600 mt-0.5">
+              {syncResult.updated} registro{syncResult.updated !== 1 ? "s" : ""} atualizado{syncResult.updated !== 1 ? "s" : ""} · {syncResult.deleted} excluído{syncResult.deleted !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <button onClick={reset} className="text-emerald-600 hover:text-emerald-800 text-xs font-semibold flex items-center gap-1">
+            <RefreshCw size={13} /> Nova sync
+          </button>
+        </div>
+      )}
+
+      {/* Drop zone */}
+      {stage === "idle" && (
+        <div
+          onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+          onDragLeave={() => setDragging(false)}
+          onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) processFile(f); }}
+          onClick={() => fileInputRef.current?.click()}
+          className={`flex flex-col items-center justify-center gap-4 p-12 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${dragging ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50/50"}`}
+        >
+          <div className="w-14 h-14 rounded-2xl bg-indigo-100 flex items-center justify-center">
+            <RefreshCw size={28} className="text-indigo-600" />
+          </div>
+          <div className="text-center">
+            <p className="text-sm font-bold text-slate-800">Arraste a planilha de atribuições aqui ou clique</p>
+            <p className="text-xs text-slate-500 mt-1">Exportação SAP · Suporte: .xlsx, .xls, .csv</p>
+          </div>
+          <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }} />
+        </div>
+      )}
+
+      {/* Loading */}
+      {(stage === "loading-db" || stage === "syncing") && (
+        <div className="flex flex-col items-center justify-center gap-3 p-12 bg-slate-50 border border-slate-200 rounded-2xl">
+          <Loader2 size={32} className="animate-spin text-indigo-500" />
+          <p className="text-sm font-semibold text-slate-600">{progress || "Processando…"}</p>
+        </div>
+      )}
+
+      {/* File header + report */}
+      {(stage === "ready" || stage === "done") && file && report && (
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          {/* File info */}
+          <div className="flex items-center gap-3 p-4 border-b border-slate-100 bg-slate-50/50">
+            <div className="w-10 h-10 rounded-xl bg-indigo-100 flex items-center justify-center shrink-0">
+              <FileText size={18} className="text-indigo-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-slate-900 truncate">{file.name}</p>
+              <p className="text-xs text-slate-500">{(file.size / 1024).toFixed(1)} KB</p>
+            </div>
+            {stage === "ready" && (
+              <button onClick={reset} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><X size={16} /></button>
+            )}
+          </div>
+
+          <div className="p-4 space-y-4">
+            {/* Summary cards */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-center">
+                <Trash2 size={16} className="text-red-500 mx-auto mb-1" />
+                <p className="text-2xl font-black text-red-700">{report.devolvidos.length}</p>
+                <p className="text-xs font-semibold text-red-600 mt-0.5">Devolvidos</p>
+              </div>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                <ArrowLeftRight size={16} className="text-amber-500 mx-auto mb-1" />
+                <p className="text-2xl font-black text-amber-700">{report.reatribuicoes.length}</p>
+                <p className="text-xs font-semibold text-amber-600 mt-0.5">Reatribuições</p>
+              </div>
+              <div className="p-3 bg-orange-50 border border-orange-200 rounded-xl text-center">
+                <GitCompare size={16} className="text-orange-500 mx-auto mb-1" />
+                <p className="text-2xl font-black text-orange-700">{report.divergencias.length}</p>
+                <p className="text-xs font-semibold text-orange-600 mt-0.5">Divergências</p>
+              </div>
+            </div>
+
+            {/* Listas colapsáveis */}
+            <CollapsibleList
+              title="Devolvidos — serão excluídos"
+              count={report.devolvidos.length}
+              color="bg-red-50 border-red-200 text-red-800"
+              items={report.devolvidos}
+            />
+            <CollapsibleList
+              title="Reatribuições — matrícula alterada"
+              count={report.reatribuicoes.length}
+              color="bg-amber-50 border-amber-200 text-amber-800"
+              items={report.reatribuicoes}
+            />
+            <CollapsibleList
+              title="Divergências — material ou data diferente"
+              count={report.divergencias.length}
+              color="bg-orange-50 border-orange-200 text-orange-800"
+              items={report.divergencias}
+            />
+
+            {totalChanges === 0 && (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                <CheckCircle2 size={20} className="text-emerald-500 mx-auto mb-1" />
+                <p className="text-sm font-semibold text-emerald-700">Tudo sincronizado! Nenhuma diferença encontrada.</p>
+              </div>
+            )}
+
+            {/* Botões */}
+            {stage === "ready" && (
+              <div className="flex gap-3 pt-1">
+                <button onClick={reset} className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 font-semibold text-sm rounded-xl hover:bg-slate-100 transition-colors">
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSync}
+                  disabled={totalChanges === 0}
+                  className="flex-1 px-4 py-2.5 bg-[#1e3a5f] text-white font-bold text-sm rounded-xl hover:bg-[#2d5282] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
+                >
+                  <RefreshCw size={16} />
+                  Executar Sincronização ({totalChanges})
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// PÁGINA PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════
+
+type Tab = "gdis" | "atribuicoes";
+
+export default function ImportacaoPage() {
+  const [activeTab, setActiveTab] = useState<Tab>("gdis");
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6 p-6">
+      {/* Header */}
+      <div>
+        <h2 className="text-xl font-bold text-[#0f172a]">Importar</h2>
+        <p className="text-sm text-[#64748b] mt-0.5">Importe relatórios GDIS ou sincronize a planilha de atribuições SAP.</p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
+        {([ ["gdis", "Relatório GDIS"], ["atribuicoes", "Planilha de Atribuições"] ] as [Tab, string][]).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={`flex-1 px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+              activeTab === key
+                ? "bg-white text-[#1e3a5f] shadow-sm"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {activeTab === "gdis" ? <GdisTab /> : <AtribuicoesTab />}
+    </div>
+  );
+}

@@ -215,7 +215,12 @@ export async function createMedidores(
   return (data ?? []) as Medidor[];
 }
 
-export async function updateMedidor(id: string, payload: Partial<Medidor>): Promise<Medidor> {
+export type MedidorUpdatePayload = Partial<Omit<Medidor, 'servico_gdis' | 'data_conclusao'>> & {
+  servico_gdis?: string | null;
+  data_conclusao?: string | null;
+};
+
+export async function updateMedidor(id: string, payload: MedidorUpdatePayload): Promise<Medidor> {
   const { data, error } = await supabase
     .from('medidores_list')
     .update(payload)
@@ -224,6 +229,26 @@ export async function updateMedidor(id: string, payload: Partial<Medidor>): Prom
     .single();
   if (error) throw new Error(error.message);
   return data as Medidor;
+}
+
+// ─── Logs de medidor ─────────────────────────────────────────────────────────
+
+export interface MedidorLog {
+  id: string;
+  medidor_id: string;
+  evento: string;
+  descricao: string | null;
+  created_at: string;
+}
+
+export async function getMedidorLogs(medidorId: string): Promise<MedidorLog[]> {
+  const { data, error } = await supabase
+    .from('medidor_logs')
+    .select('*')
+    .eq('medidor_id', medidorId)
+    .order('created_at', { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as MedidorLog[];
 }
 
 export async function deleteMedidor(id: string): Promise<void> {
@@ -277,6 +302,14 @@ export async function getServicosAguardandoVinculacao(
 
   if (error) throw new Error(error.message);
   return { data: (data ?? []) as ServicoReportAguardando[], total: count ?? 0 };
+}
+
+export async function reverterServicoPendente(servicoId: string): Promise<void> {
+  const { error } = await supabase
+    .from('servicos_report')
+    .update({ status_conferencia: 'PENDENTE', serial_buscado: null })
+    .eq('servico', servicoId);
+  if (error) throw new Error(error.message);
 }
 
 export async function verificarVinculacoesPendentes(): Promise<number> {
@@ -396,6 +429,182 @@ export async function getMedidorReatribuicaoInfo(medidorId: string): Promise<Rea
       data: anterior.data,
       data_reatribuicao: anterior.data_reatribuicao,
     },
+  };
+}
+
+// ─── Sync Atribuições (Planilha SAP) ────────────────────────────────────────
+
+export interface MedidorParaSync {
+  id: string;
+  serial: string;
+  matricula: string;
+  material_sap: string;
+  data: string;
+}
+
+export async function getMedidoresParaSync(): Promise<MedidorParaSync[]> {
+  const result: MedidorParaSync[] = [];
+  let from = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from('medidores_list')
+      .select('id,serial,matricula,material_sap,data')
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    result.push(...((data ?? []) as MedidorParaSync[]));
+    if ((data ?? []).length < PAGE) break;
+    from += PAGE;
+  }
+  return result;
+}
+
+export async function syncAtribuicoes(params: {
+  updates: { id: string; patch: { matricula?: string; material_sap?: string; data?: string } }[];
+  deletes: string[];
+}): Promise<{ updated: number; deleted: number }> {
+  let updated = 0;
+  let deleted = 0;
+
+  for (const { id, patch } of params.updates) {
+    const { error } = await supabase.from('medidores_list').update(patch).eq('id', id);
+    if (error) throw new Error(error.message);
+    updated++;
+  }
+
+  const BATCH = 100;
+  for (let i = 0; i < params.deletes.length; i += BATCH) {
+    const batch = params.deletes.slice(i, i + BATCH);
+    const { error } = await supabase.from('medidores_list').delete().in('id', batch);
+    if (error) throw new Error(error.message);
+    deleted += batch.length;
+  }
+
+  return { updated, deleted };
+}
+
+// ─── Dashboard Metrics ────────────────────────────────────────────────────────
+
+export interface DashboardMetrics {
+  total: number;
+  pendentes: number;
+  concluidos: number;
+  valorPendente: number;
+  valorConcluido: number;
+  valorTotal: number;
+  mediaDiasPendentes: number;
+  acima45dias: number;
+  ranking: RankingItem[];
+}
+
+export interface RankingItem {
+  matricula: string;
+  nome: string;
+  qtd_pendente: number;
+  valor_pendente: number;
+}
+
+export interface MetricsFilters {
+  matriculas?: string[];
+  supervisores?: string[];
+  servicoGdis?: string;
+  serial?: string;
+  status?: string[];
+  atribuicaoInicio?: string;
+  atribuicaoFim?: string;
+  conclusaoInicio?: string;
+  conclusaoFim?: string;
+  materialCategorias?: string[];
+}
+
+export async function getMedidoresMetrics(filters?: MetricsFilters): Promise<DashboardMetrics> {
+  const rows: { status: string; valor: number | null; dias: number | null; matricula: string; nome: string }[] = [];
+  let from = 0;
+  const PAGE = 1000;
+
+  while (true) {
+    let query = supabase
+      .from('vw_medidores_completo')
+      .select('"Concluído/Pendente","VALOR","DIAS DE ATRIBUIÇÃO","MATRICULA","COLABORADOR"')
+      .range(from, from + PAGE - 1);
+
+    if (filters?.matriculas && filters.matriculas.length > 0) query = query.in('MATRICULA', filters.matriculas);
+    if (filters?.supervisores && filters.supervisores.length > 0) query = query.in('SUPERVISOR', filters.supervisores);
+    if (filters?.servicoGdis) query = query.ilike('"SERVIÇO GDIS"', `%${filters.servicoGdis.trim()}%`);
+    if (filters?.serial) {
+      const rawSerials = filters.serial.split(',').map(s => s.trim()).filter(Boolean);
+      if (rawSerials.length === 1) query = query.ilike('"Serial"', `%${rawSerials[0]}%`);
+      else if (rawSerials.length > 1) query = query.or(rawSerials.map(s => `"Serial".ilike.%${s}%`).join(','));
+    }
+    if (filters?.status && filters.status.length > 0) query = query.in('"Concluído/Pendente"', filters.status);
+    if (filters?.atribuicaoInicio) query = query.gte('Data', filters.atribuicaoInicio);
+    if (filters?.atribuicaoFim) query = query.lte('Data', filters.atribuicaoFim);
+    if (filters?.conclusaoInicio) query = query.gte('Data da conclusão', filters.conclusaoInicio);
+    if (filters?.conclusaoFim) query = query.lte('Data da conclusão', filters.conclusaoFim);
+    if (filters?.materialCategorias && filters.materialCategorias.length > 0) {
+      let sapCodes: string[] = [];
+      if (filters.materialCategorias.includes("TC")) sapCodes = [...sapCodes, '242206', '242818', '242198'];
+      if (filters.materialCategorias.includes("Chave De Aferição")) sapCodes = [...sapCodes, '306225'];
+      if (filters.materialCategorias.includes("Medidores")) sapCodes = [...sapCodes, '380231', '383150', '383151', '383152', '319525', '380230', '319392', '376701', '376874', '378257', '376700', '376872', '320069', '376873', '326751', '377205', '383894', '380971', '376699', '388485', '388486'];
+      if (sapCodes.length > 0) query = query.in('Material SAP', sapCodes);
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      rows.push({
+        status: (row as any)['Concluído/Pendente'] ?? '',
+        valor: (row as any)['VALOR'] ?? null,
+        dias: (row as any)['DIAS DE ATRIBUIÇÃO'] ?? null,
+        matricula: (row as any)['MATRICULA'] ?? '',
+        nome: (row as any)['COLABORADOR'] ?? '',
+      });
+    }
+    if ((data ?? []).length < PAGE) break;
+    from += PAGE;
+  }
+
+  let pendentes = 0, concluidos = 0, valorPendente = 0, valorConcluido = 0;
+  let somasDiasPendentes = 0, contDiasPendentes = 0, acima45 = 0;
+  const rankMap = new Map<string, { nome: string; qtd_pendente: number; valor_pendente: number }>();
+
+  for (const r of rows) {
+    const isPendente = r.status === 'PENDENTE';
+    const valor = typeof r.valor === 'number' ? r.valor : 0;
+    const dias = typeof r.dias === 'number' ? r.dias : 0;
+    if (isPendente) {
+      pendentes++;
+      valorPendente += valor;
+      somasDiasPendentes += dias;
+      contDiasPendentes++;
+      if (dias > 45) acima45++;
+      if (r.matricula) {
+        const entry = rankMap.get(r.matricula) ?? { nome: r.nome, qtd_pendente: 0, valor_pendente: 0 };
+        entry.qtd_pendente++;
+        entry.valor_pendente += valor;
+        rankMap.set(r.matricula, entry);
+      }
+    } else {
+      concluidos++;
+      valorConcluido += valor;
+    }
+  }
+
+  const ranking: RankingItem[] = Array.from(rankMap.entries())
+    .map(([matricula, v]) => ({ matricula, ...v }))
+    .sort((a, b) => b.valor_pendente - a.valor_pendente)
+    .slice(0, 10);
+
+  return {
+    total: rows.length,
+    pendentes,
+    concluidos,
+    valorPendente,
+    valorConcluido,
+    valorTotal: valorPendente + valorConcluido,
+    mediaDiasPendentes: contDiasPendentes > 0 ? somasDiasPendentes / contDiasPendentes : 0,
+    acima45dias: acima45,
+    ranking,
   };
 }
 

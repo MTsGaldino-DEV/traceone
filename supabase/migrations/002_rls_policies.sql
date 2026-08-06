@@ -1,17 +1,16 @@
 -- =============================================================================
--- TraceOne — 002_rls_policies.sql
+-- TraceOne — 002_rls_policies.sql (Módulo Medidores)
 -- Colar no SQL Editor do Supabase APÓS executar 001_initial_schema.sql
 -- =============================================================================
 
 -- =============================================================================
 -- Habilitar RLS em todas as tabelas
 -- =============================================================================
-ALTER TABLE profiles       ENABLE ROW LEVEL SECURITY;
-ALTER TABLE employees      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE categories     ENABLE ROW LEVEL SECURITY;
-ALTER TABLE items          ENABLE ROW LEVEL SECURITY;
-ALTER TABLE stock_movements ENABLE ROW LEVEL SECURITY;
-ALTER TABLE audits         ENABLE ROW LEVEL SECURITY;
+ALTER TABLE profiles           ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tipos_de_medidores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE colaboradores      ENABLE ROW LEVEL SECURITY;
+ALTER TABLE medidores_list     ENABLE ROW LEVEL SECURITY;
+ALTER TABLE servicos_report    ENABLE ROW LEVEL SECURITY;
 
 -- =============================================================================
 -- Função helper: retorna a role do usuário autenticado
@@ -41,67 +40,32 @@ CREATE POLICY "user_update_own_profile" ON profiles
   WITH CHECK (id = auth.uid());
 
 -- =============================================================================
--- POLICIES: employees
--- ADMIN + ALMOXARIFE: CRUD completo
--- GESTOR: somente leitura
+-- POLICIES: Leituras (Todos os autenticados)
 -- =============================================================================
-CREATE POLICY "admin_almox_all_employees" ON employees
+CREATE POLICY "read_all_tipos" ON tipos_de_medidores FOR SELECT TO authenticated USING (true);
+CREATE POLICY "read_all_colaboradores" ON colaboradores FOR SELECT TO authenticated USING (true);
+CREATE POLICY "read_all_medidores" ON medidores_list FOR SELECT TO authenticated USING (true);
+CREATE POLICY "read_all_servicos" ON servicos_report FOR SELECT TO authenticated USING (true);
+
+-- =============================================================================
+-- POLICIES: Escrita (Apenas ADMIN e ALMOXARIFE)
+-- =============================================================================
+CREATE POLICY "write_tipos" ON tipos_de_medidores
   FOR ALL TO authenticated
   USING (get_user_role() IN ('ADMIN', 'ALMOXARIFE'))
   WITH CHECK (get_user_role() IN ('ADMIN', 'ALMOXARIFE'));
 
-CREATE POLICY "gestor_read_employees" ON employees
-  FOR SELECT TO authenticated
-  USING (get_user_role() = 'GESTOR');
-
--- =============================================================================
--- POLICIES: categories
--- ADMIN + ALMOXARIFE: CRUD completo
--- GESTOR: somente leitura
--- =============================================================================
-CREATE POLICY "admin_almox_all_categories" ON categories
+CREATE POLICY "write_colaboradores" ON colaboradores
   FOR ALL TO authenticated
   USING (get_user_role() IN ('ADMIN', 'ALMOXARIFE'))
   WITH CHECK (get_user_role() IN ('ADMIN', 'ALMOXARIFE'));
 
-CREATE POLICY "gestor_read_categories" ON categories
-  FOR SELECT TO authenticated
-  USING (get_user_role() = 'GESTOR');
-
--- =============================================================================
--- POLICIES: items
--- ADMIN + ALMOXARIFE: CRUD completo
--- GESTOR: somente leitura
--- =============================================================================
-CREATE POLICY "admin_almox_all_items" ON items
+CREATE POLICY "write_medidores" ON medidores_list
   FOR ALL TO authenticated
   USING (get_user_role() IN ('ADMIN', 'ALMOXARIFE'))
   WITH CHECK (get_user_role() IN ('ADMIN', 'ALMOXARIFE'));
 
-CREATE POLICY "gestor_read_items" ON items
-  FOR SELECT TO authenticated
-  USING (get_user_role() = 'GESTOR');
-
--- =============================================================================
--- POLICIES: stock_movements
--- ADMIN + ALMOXARIFE: CRUD completo
--- GESTOR: somente leitura
--- Nota: inserções via RPC create_movement (SECURITY DEFINER) também funcionam
--- =============================================================================
-CREATE POLICY "admin_almox_all_movements" ON stock_movements
+CREATE POLICY "write_servicos" ON servicos_report
   FOR ALL TO authenticated
   USING (get_user_role() IN ('ADMIN', 'ALMOXARIFE'))
   WITH CHECK (get_user_role() IN ('ADMIN', 'ALMOXARIFE'));
-
-CREATE POLICY "gestor_read_movements" ON stock_movements
-  FOR SELECT TO authenticated
-  USING (get_user_role() = 'GESTOR');
-
--- =============================================================================
--- POLICIES: audits
--- Apenas ADMIN pode ler
--- Inserções são feitas pelas funções SECURITY DEFINER (bypassam RLS)
--- =============================================================================
-CREATE POLICY "admin_read_audits" ON audits
-  FOR SELECT TO authenticated
-  USING (get_user_role() = 'ADMIN');

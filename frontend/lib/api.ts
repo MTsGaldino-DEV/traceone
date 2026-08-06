@@ -347,7 +347,7 @@ export async function runMatchMedidores(): Promise<MatchCandidato[]> {
   return (data ?? []) as MatchCandidato[];
 }
 
-// ─── Users/Profiles (ADMIN only) ─────────────────────────────────────────────
+// ─── Users/Profiles (Gestão de Usuários — ADMIN, GESTOR, SUPERVISOR) ─────────
 
 export async function getUsers(): Promise<Profile[]> {
   const { data, error } = await supabase
@@ -356,6 +356,50 @@ export async function getUsers(): Promise<Profile[]> {
     .order('name');
   if (error) throw new Error(error.message);
   return (data ?? []) as Profile[];
+}
+
+async function authHeader(): Promise<Record<string, string>> {
+  const session = await getSession();
+  if (!session) throw new Error('Sessão não encontrada');
+  return { Authorization: `Bearer ${session.access_token}` };
+}
+
+export async function createUser(payload: {
+  name: string;
+  email: string;
+  password: string;
+  role: Profile['role'];
+}): Promise<void> {
+  const res = await fetch('/api/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...(await authHeader()) },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? 'Falha ao criar usuário');
+}
+
+export async function deleteUser(id: string): Promise<void> {
+  const res = await fetch(`/api/users/${id}`, {
+    method: 'DELETE',
+    headers: await authHeader(),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error ?? 'Falha ao excluir usuário');
+}
+
+export async function updateUserRole(
+  id: string,
+  patch: Partial<Pick<Profile, 'name' | 'role' | 'is_active'>>
+): Promise<Profile> {
+  const { data, error } = await supabase
+    .from('profiles')
+    .update(patch)
+    .eq('id', id)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as Profile;
 }
 
 // ─── Anti-Duplicidade / Reatribuição ─────────────────────────────────────────

@@ -89,6 +89,11 @@ Sistema web de rastreamento de medidores de energia elétrica para uso interno d
 | 013 | `rpc_verificar_pendentes.sql` | RPC `verificar_vinculacoes_pendentes` (retorna contagem) |
 | 014 | `rpc_get_metrics.sql` | Função `get_medidores_metrics` (escrita mas métricas resolvidas client-side) |
 | 015 | `medidor_logs.sql` | Tabela `medidor_logs` + trigger `trg_log_medidor_evento` + backfill de histórico |
+| 016 | `role_hierarchy_enum.sql` | Renomeia `ALMOXARIFE` → `ALMOXARIFADO` no enum `role_type`; adiciona `SUPERVISOR` e `DESPACHANTE` |
+| 017 | `role_hierarchy_rls.sql` | Atualiza policies de escrita pros 5 roles (ver seção 11) |
+| 018 | `remove_allow_all_policies.sql` | Remove policies `allow_all_*` não versionadas que liberavam acesso total a `public` |
+| 019 | `fix_handle_new_user_default_role.sql` | Corrige literal `'ALMOXARIFE'` hardcoded (quebrado pela renomeação em 016) na trigger `handle_new_user` |
+| 020 | `fix_handle_new_user_search_path.sql` | Fixa `search_path = public` na trigger `handle_new_user` (bug que impedia criação de QUALQUER usuário via Auth API/painel — ver seção 11.3) |
 
 ---
 
@@ -355,3 +360,68 @@ O `Dockerfile` está em `frontend/`. O `docker-compose.yml` está na raiz do rep
 3. **Cron/job de limpeza** — limpar `servicos_report` antigos para manter performance
 4. **Autenticação por perfil** — diferenciar permissões entre operador e gestor
 5. **Notificações** — alertar gestores quando medidores ultrapassam 45 dias sem conclusão
+
+---
+
+## 11. Hierarquia de Permissões (2026-08-06)
+
+### 11.1 O que foi implementado
+
+- `role_type` agora tem 5 valores: `ADMIN`, `GESTOR`, `SUPERVISOR`, `ALMOXARIFADO`, `DESPACHANTE` (migrations `016`–`017`). `ALMOXARIFE` foi renomeado para `ALMOXARIFADO` via `ALTER TYPE ... RENAME VALUE`.
+- RLS: escrita em `tipos_de_medidores`, `colaboradores`, `medidores_list`, `servicos_report` liberada para `ADMIN/GESTOR/SUPERVISOR/ALMOXARIFADO`; gestão de `profiles` (CRUD de usuários) liberada para `ADMIN/GESTOR/SUPERVISOR`. `DESPACHANTE` só lê.
+- Achado e removido no caminho: existiam policies `allow_all_*` (não versionadas em nenhuma migration anterior) liberando leitura/escrita total a `public`, inclusive sem login, nas 4 tabelas operacionais — anulavam toda a hierarquia. Removidas na migration `018`.
+- `frontend/lib/permissions.ts` (novo): `canWrite`, `canManageUsers`, `roleLabels`, `assignableRoles`.
+- Sidebar (`layout.tsx`) filtra menu por role + redireciona se a rota atual não é permitida pro role do usuário.
+- `dashboard/page.tsx`: ações de escrita (editar/excluir/vincular) somem para quem não tem `canWrite` (ex: Despachante).
+- Nova tela `/dashboard/usuarios` — CRUD de usuários, só visível pra `ADMIN/GESTOR/SUPERVISOR`.
+- `frontend/lib/supabase-admin.ts` + `app/api/users/route.ts` (POST) + `app/api/users/[id]/route.ts` (DELETE) — únicos pontos que tocam a `service_role` key, validando a sessão/role do chamador antes de qualquer operação admin. A chave nunca sai do servidor.
+- Todas as migrations aplicadas em produção via `npx tsx run_migration.ts <arquivo>` (rodar da pasta `frontend/`).
+
+### 11.2 Bug encontrado e corrigido: `handle_new_user()` quebrada
+
+A migration `016` renomeou o enum `ALMOXARIFE` → `ALMOXARIFADO`, mas a função `handle_new_user()` (trigger `on_auth_user_created` em `auth.users`, que cria a linha em `profiles` automaticamente ao criar um usuário) tinha o valor antigo **hardcoded** como fallback:
+
+```sql
+COALESCE((NEW.raw_user_meta_data->>'role')::role_type, 'ALMOXARIFE')  -- 'ALMOXARIFE' não existe mais no enum
+```
+
+Isso quebrava a criação de **qualquer** usuário novo (Postgres tenta resolver o literal como `role_type` mesmo quando o `COALESCE` não cai nesse branch, porque é um cast de constante feito em tempo de parse). Corrigido na migration `019` trocando o literal para `'ALMOXARIFADO'`. **Já aplicada em produção.**
+
+### 11.3 Segundo bug encontrado e corrigido: `search_path` da trigger — RESOLVIDO
+
+Mesmo depois da correção 11.2, `supabase.auth.admin.createUser(...)` (SDK, API direta e o próprio painel do Supabase) continuava retornando:
+
+```json
+{"code":500,"error_code":"unexpected_failure","msg":"Database error creating new user"}
+```
+
+**Causa raiz:** `handle_new_user()` é `SECURITY DEFINER` mas não fixava `search_path`. O role `supabase_auth_admin` (quem o GoTrue usa de verdade pra criar usuários — confirmado com `SELECT rolname, rolconfig FROM pg_roles WHERE rolname = 'supabase_auth_admin'`) tem `search_path = 'auth'` **apenas**, sem `public`. Uma função `SECURITY DEFINER` sem `SET search_path` herda o `search_path` de quem a chama (não do dono) — então o `INSERT INTO profiles (...)` (sem schema qualificado) dentro da trigger tentava resolver `profiles`/`role_type` dentro do schema `auth`, onde não existem, e falhava.
+
+Por isso os testes manuais conectando como `postgres` (cujo `search_path` inclui `public`) sempre funcionavam, mas a chamada real do GoTrue nunca funcionou — provavelmente **esse bug é anterior a qualquer migration deste projeto**, não uma regressão da hierarquia de permissões. Isso também explica os 3 usuários órfãos em `auth.users` sem linha em `profiles` (`admin@traceone.com`, `almox@traceone.com`, `gestor@traceone.com`, criados em 2026-07-28) — **provavelmente foram criados direto no painel/API do GoTrue antes da trigger existir**, então nunca tiveram profile gerado (não é sobre `000_drop_all.sql` como cheguei a suspeitar antes).
+
+**Correção (migration `020`):**
+
+```sql
+CREATE OR REPLACE FUNCTION handle_new_user()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO public.profiles (id, name, role)
+  VALUES (
+    NEW.id,
+    COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
+    COALESCE((NEW.raw_user_meta_data->>'role')::public.role_type, 'ALMOXARIFADO')
+  );
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+```
+
+**Já aplicada em produção e confirmada funcionando** — usuário `matheus.galdino@engelmig.com.br` (ADMIN) criado com sucesso via `supabase.auth.admin.createUser()` depois dessa correção, com linha em `profiles` gerada corretamente pela trigger.
+
+> **Lição pra qualquer função `SECURITY DEFINER` nova neste projeto:** sempre declarar `SET search_path = public` (ou schema explícito em cada referência) — nunca depender do `search_path` de quem chama.
+
+Os 3 usuários órfãos (`admin@traceone.com`, `almox@traceone.com`, `gestor@traceone.com`) continuam sem `profiles` — se forem usados, alguém vai precisar inserir a linha manualmente em `profiles` ou recriá-los.
+
+### 11.4 Convenção de scripts descartáveis
+
+Scripts de diagnóstico criados em `frontend/*.ts` para investigar o banco direto (fora dos scripts permanentes do projeto como `run_migration.ts`, `import_colab.ts` etc.) devem ser **apagados assim que o teste for concluído** — não fazem parte do projeto, servem só pra uma pergunta pontual. Anotar aqui o que já foi testado evita recriar o mesmo script na próxima sessão.

@@ -38,10 +38,12 @@ import {
   getSupervisores,
   getTiposMedidores,
   getMedidorLogs,
+  getProfile,
 } from "../../../lib/api";
 import type { SortConfig, RankingItem, MedidorLog } from "../../../lib/api";
-import type { MedidorCompleto, Colaborador, TipoMedidor } from "../../../lib/supabase";
+import type { MedidorCompleto, Colaborador, TipoMedidor, Profile } from "../../../lib/supabase";
 import type { ReatribuicaoHistorico, DashboardMetrics } from "../../../lib/api";
+import { canWrite } from "../../../lib/permissions";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -332,6 +334,14 @@ const LOG_EVENTO_CONFIG: Record<string, { label: string; bg: string; ring: strin
 const PAGE_SIZE = 50;
 
 export default function DashboardPage() {
+  // Permissões
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const canEdit = canWrite(profile?.role);
+
+  useEffect(() => {
+    getProfile().then(setProfile).catch(() => setProfile(null));
+  }, []);
+
   // Data
   const [rows, setRows] = useState<MedidorCompleto[]>([]);
   const [total, setTotal] = useState(0);
@@ -1260,7 +1270,7 @@ export default function DashboardPage() {
                             >
                               <Eye size={14} />
                             </button>
-                            {isPendente && (
+                            {isPendente && canEdit && (
                               <button
                                 onClick={() => { setGdisTarget({ id: row.id, serial: row["Serial"] as string }); setGdisInput(""); setGdisError(null); }}
                                 className="p-1 text-[#9ca3af] hover:text-emerald-600 transition-colors rounded"
@@ -1269,13 +1279,15 @@ export default function DashboardPage() {
                                 <Link2 size={14} />
                               </button>
                             )}
-                            <button
-                              onClick={() => setDeleteTarget({ id: row.id, serial: row["Serial"] as string })}
-                              className="p-1 text-[#9ca3af] hover:text-red-600 transition-colors rounded"
-                              title="Excluir medidor"
-                            >
-                              <Trash2 size={14} />
-                            </button>
+                            {canEdit && (
+                              <button
+                                onClick={() => setDeleteTarget({ id: row.id, serial: row["Serial"] as string })}
+                                className="p-1 text-[#9ca3af] hover:text-red-600 transition-colors rounded"
+                                title="Excluir medidor"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -1507,6 +1519,7 @@ export default function DashboardPage() {
               </div>
 
               {/* Editable fields */}
+              {canEdit && (
               <div className="border-t border-[#f1f5f9] pt-3 space-y-3">
                 <p className="text-xs font-semibold text-[#64748b] uppercase tracking-wide">Editar</p>
 
@@ -1618,6 +1631,7 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
+              )}
 
               {/* Reatribuição history */}
               {!loadingModal && reatribuicao?.anterior && (
@@ -1674,28 +1688,32 @@ export default function DashboardPage() {
             </div>
 
             <div className="flex items-center justify-between gap-2 p-5 border-t border-[#f1f5f9]">
-              <button
-                onClick={handleDeleteRow}
-                disabled={deleting}
-                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
-              >
-                <Trash2 size={13} />
-                {deleting ? "Excluindo..." : "Excluir"}
-              </button>
+              {canEdit ? (
+                <button
+                  onClick={handleDeleteRow}
+                  disabled={deleting}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 size={13} />
+                  {deleting ? "Excluindo..." : "Excluir"}
+                </button>
+              ) : <span />}
               <div className="flex gap-2">
                 <button
                   onClick={closeModal}
                   className="px-4 py-2 text-xs font-medium text-[#64748b] border border-[#e5e7eb] rounded-lg hover:bg-[#f9fafb] transition-colors"
                 >
-                  Cancelar
+                  {canEdit ? "Cancelar" : "Fechar"}
                 </button>
-                <button
-                  onClick={saveModal}
-                  disabled={saving}
-                  className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
-                >
-                  {saving ? "Salvando..." : "Salvar"}
-                </button>
+                {canEdit && (
+                  <button
+                    onClick={saveModal}
+                    disabled={saving}
+                    className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  >
+                    {saving ? "Salvando..." : "Salvar"}
+                  </button>
+                )}
               </div>
             </div>
           </div>

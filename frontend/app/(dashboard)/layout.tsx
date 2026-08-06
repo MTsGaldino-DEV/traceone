@@ -8,25 +8,23 @@ import {
   PlusCircle,
   UploadCloud,
   CheckSquare,
+  Users,
   LogOut,
   ChevronRight,
 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import type { Profile } from "../../lib/supabase";
 import { logout } from "../../lib/api";
+import { canManageUsers, roleLabels } from "../../lib/permissions";
 
 const navItems = [
-  { label: "Lista de Medidores", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Lançamento Manual", href: "/dashboard/lancamento", icon: PlusCircle },
-  { label: "Importar Relatório", href: "/dashboard/importacao", icon: UploadCloud },
-  { label: "Conferência", href: "/dashboard/conferencia", icon: CheckSquare },
+  { label: "Lista de Medidores", href: "/dashboard", icon: LayoutDashboard, despachante: true },
+  { label: "Lançamento Manual", href: "/dashboard/lancamento", icon: PlusCircle, despachante: false },
+  { label: "Importar Relatório", href: "/dashboard/importacao", icon: UploadCloud, despachante: false },
+  { label: "Conferência", href: "/dashboard/conferencia", icon: CheckSquare, despachante: false },
 ];
 
-const roleLabels: Record<string, string> = {
-  ADMIN: "Administrador",
-  ALMOXARIFE: "Almoxarife",
-  GESTOR: "Gestor",
-};
+const usuariosNavItem = { label: "Gestão de Usuários", href: "/dashboard/usuarios", icon: Users };
 
 export default function DashboardLayout({
   children,
@@ -66,6 +64,18 @@ export default function DashboardLayout({
     return () => subscription.unsubscribe();
   }, [router]);
 
+  const isDespachante = profile?.role === "DESPACHANTE";
+  const visibleNavItems = isDespachante ? navItems.filter((n) => n.despachante) : navItems;
+  const allNavItems = canManageUsers(profile?.role) ? [...visibleNavItems, usuariosNavItem] : visibleNavItems;
+
+  useEffect(() => {
+    if (!profile) return;
+    const allowed = allNavItems.some(
+      (n) => pathname === n.href || (n.href !== "/dashboard" && pathname.startsWith(n.href))
+    );
+    if (!allowed) router.replace("/dashboard");
+  }, [profile, pathname]);
+
   const handleLogout = async () => {
     await logout();
     router.replace("/login");
@@ -96,7 +106,7 @@ export default function DashboardLayout({
 
         {/* Nav */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navItems.map(({ label, href, icon: Icon }) => {
+          {allNavItems.map(({ label, href, icon: Icon }) => {
             const isActive =
               pathname === href ||
               (href !== "/dashboard" && pathname.startsWith(href));
@@ -155,7 +165,7 @@ export default function DashboardLayout({
         {/* Top bar */}
         <header className="h-14 bg-white border-b border-slate-200 flex items-center px-6 flex-shrink-0 shadow-xs">
           <h1 className="text-sm font-bold text-slate-900">
-            {navItems.find(
+            {allNavItems.find(
               (n) =>
                 pathname === n.href ||
                 (n.href !== "/dashboard" && pathname.startsWith(n.href))

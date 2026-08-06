@@ -7,7 +7,7 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 // ─── Tipos base ──────────────────────────────────────────────────────────────
 
-export type Role = 'ADMIN' | 'ALMOXARIFE' | 'GESTOR';
+export type Role = 'ADMIN' | 'GESTOR' | 'SUPERVISOR' | 'ALMOXARIFADO' | 'DESPACHANTE';
 export type StatusMedidor = 'PENDENTE' | 'CONCLUIDO';
 
 // ─── Interfaces ──────────────────────────────────────────────────────────────

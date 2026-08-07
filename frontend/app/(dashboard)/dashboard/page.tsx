@@ -27,7 +27,9 @@ import {
   Calendar,
   AlertCircle,
   Link2,
+  Loader2,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import {
   getMedidoresCompleto,
   updateMedidor,
@@ -35,6 +37,7 @@ import {
   getColaboradores,
   getMedidorReatribuicaoInfo,
   getMedidoresMetrics,
+  getMedidoresAcima45Dias,
   getSupervisores,
   getTiposMedidores,
   getMedidorLogs,
@@ -268,9 +271,10 @@ interface MetricCardProps {
   iconBg: string;      // icon background (bg-*)
   valueColor?: string; // override for value text color
   loading?: boolean;
+  action?: React.ReactNode; // slot opcional no canto superior direito
 }
 
-function MetricCard({ icon: Icon, label, value, sub, iconColor, iconBg, valueColor, loading }: MetricCardProps) {
+function MetricCard({ icon: Icon, label, value, sub, iconColor, iconBg, valueColor, loading, action }: MetricCardProps) {
   if (loading) {
     return (
       <div className="bg-white rounded-[10px] border border-gray-200 p-4 animate-pulse">
@@ -284,7 +288,8 @@ function MetricCard({ icon: Icon, label, value, sub, iconColor, iconBg, valueCol
     );
   }
   return (
-    <div className="bg-white rounded-[10px] border border-gray-200 p-4 flex flex-col">
+    <div className="bg-white rounded-[10px] border border-gray-200 p-4 flex flex-col relative">
+      {action && <div className="absolute top-3 right-3">{action}</div>}
       <div className="flex items-center gap-2 mb-3">
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${iconBg}`}>
           <Icon size={15} className={iconColor} strokeWidth={1.75} />
@@ -355,6 +360,7 @@ export default function DashboardPage() {
   // Metrics
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
+  const [exportando45, setExportando45] = useState(false);
 
   // Filter options
   const [supervisorOptions, setSupervisorOptions] = useState<string[]>([]);
@@ -530,6 +536,48 @@ export default function DashboardPage() {
     fetchData(1);
     fetchMetrics();
   }, [fetchData, fetchMetrics]);
+
+  const handleExportar45Dias = async () => {
+    setExportando45(true);
+    try {
+      const finalMatriculas = buildFinalMatriculas();
+      const rows = await getMedidoresAcima45Dias({
+        matriculas: finalMatriculas.length > 0 ? finalMatriculas : undefined,
+        supervisores: filterSupervisores.length > 0 ? filterSupervisores : undefined,
+        servicoGdis: filterServicoGdis || undefined,
+        serial: filterSerial || undefined,
+        atribuicaoInicio: atribuicaoInicio || undefined,
+        atribuicaoFim: atribuicaoFim || undefined,
+        conclusaoInicio: conclusaoInicio || undefined,
+        conclusaoFim: conclusaoFim || undefined,
+        materialCategorias: filterMaterialCategoria.length > 0 ? filterMaterialCategoria : undefined,
+      });
+
+      if (rows.length === 0) {
+        alert("Nenhum medidor pendente há mais de 45 dias.");
+        return;
+      }
+
+      const planilha = rows.map((r) => ({
+        "Matrícula": r.matricula,
+        "Colaborador": r.colaborador,
+        "Serviço GDIS": r.servicoGdis ?? "",
+        "Serial": r.serial,
+        "Valor": r.valor,
+        "Dias Pendente": r.dias,
+        "Data Atribuição": r.data ? new Date(r.data).toLocaleDateString("pt-BR") : "",
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(planilha);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Pendentes +45 dias");
+      XLSX.writeFile(wb, `pendentes_45dias_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (e) {
+      alert("Erro ao exportar: " + (e instanceof Error ? e.message : "desconhecido"));
+    } finally {
+      setExportando45(false);
+    }
+  };
 
   const goToPage = (p: number) => {
     setPage(p);
@@ -868,6 +916,21 @@ export default function DashboardPage() {
           iconColor="text-red-600"
           valueColor="text-red-600"
           loading={loadingMetrics}
+          action={
+            <button
+              type="button"
+              onClick={handleExportar45Dias}
+              disabled={exportando45}
+              title="Exportar pendentes +45 dias (Excel)"
+              className="p-1.5 text-red-600 hover:bg-red-50 rounded-md transition-colors disabled:opacity-40"
+            >
+              {exportando45 ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Download size={14} />
+              )}
+            </button>
+          }
         />
         <MetricCard
           icon={Calendar}

@@ -304,23 +304,6 @@ export async function getServicosAguardandoVinculacao(
   return { data: (data ?? []) as ServicoReportAguardando[], total: count ?? 0 };
 }
 
-export async function getServicosPendentesAntigos(
-  diasLimite = 45
-): Promise<ServicoReportConferencia[]> {
-  const limite = new Date();
-  limite.setDate(limite.getDate() - diasLimite);
-
-  const { data, error } = await supabase
-    .from('servicos_report')
-    .select('*')
-    .eq('status_conferencia', 'PENDENTE')
-    .lt('termino', limite.toISOString())
-    .order('termino', { ascending: true });
-
-  if (error) throw new Error(error.message);
-  return (data ?? []) as ServicoReportConferencia[];
-}
-
 export async function deleteServicoReport(servicoId: string): Promise<void> {
   const { error } = await supabase
     .from('servicos_report')
@@ -701,5 +684,71 @@ export async function getMedidoresMetrics(filters?: MetricsFilters): Promise<Das
     acima45dias: acima45,
     ranking,
   };
+}
+
+export interface MedidorAcima45Dias {
+  matricula: string;
+  colaborador: string;
+  servicoGdis: string | null;
+  serial: string;
+  valor: number;
+  dias: number;
+  data: string;
+}
+
+export async function getMedidoresAcima45Dias(
+  filters?: MetricsFilters,
+  diasLimite = 45
+): Promise<MedidorAcima45Dias[]> {
+  const rows: MedidorAcima45Dias[] = [];
+  let from = 0;
+  const PAGE = 1000;
+
+  while (true) {
+    let query = supabase
+      .from('vw_medidores_completo')
+      .select('"MATRICULA","COLABORADOR","SERVIÇO GDIS","Serial","VALOR","DIAS DE ATRIBUIÇÃO","Data"')
+      .eq('"Concluído/Pendente"', 'PENDENTE')
+      .gt('"DIAS DE ATRIBUIÇÃO"', diasLimite)
+      .range(from, from + PAGE - 1);
+
+    if (filters?.matriculas && filters.matriculas.length > 0) query = query.in('MATRICULA', filters.matriculas);
+    if (filters?.supervisores && filters.supervisores.length > 0) query = query.in('SUPERVISOR', filters.supervisores);
+    if (filters?.servicoGdis) query = query.ilike('"SERVIÇO GDIS"', `%${filters.servicoGdis.trim()}%`);
+    if (filters?.serial) {
+      const rawSerials = filters.serial.split(',').map(s => s.trim()).filter(Boolean);
+      if (rawSerials.length === 1) query = query.ilike('"Serial"', `%${rawSerials[0]}%`);
+      else if (rawSerials.length > 1) query = query.or(rawSerials.map(s => `"Serial".ilike.%${s}%`).join(','));
+    }
+    if (filters?.atribuicaoInicio) query = query.gte('Data', filters.atribuicaoInicio);
+    if (filters?.atribuicaoFim) query = query.lte('Data', filters.atribuicaoFim);
+    if (filters?.conclusaoInicio) query = query.gte('Data da conclusão', filters.conclusaoInicio);
+    if (filters?.conclusaoFim) query = query.lte('Data da conclusão', filters.conclusaoFim);
+    if (filters?.materialCategorias && filters.materialCategorias.length > 0) {
+      let sapCodes: string[] = [];
+      if (filters.materialCategorias.includes("TC")) sapCodes = [...sapCodes, '242206', '242818', '242198'];
+      if (filters.materialCategorias.includes("Chave De Aferição")) sapCodes = [...sapCodes, '306225'];
+      if (filters.materialCategorias.includes("Medidores")) sapCodes = [...sapCodes, '380231', '383150', '383151', '383152', '319525', '380230', '319392', '376701', '376874', '378257', '376700', '376872', '320069', '376873', '326751', '377205', '383894', '380971', '376699', '388485', '388486'];
+      if (sapCodes.length > 0) query = query.in('Material SAP', sapCodes);
+    }
+
+    const { data, error } = await query;
+    if (error) throw new Error(error.message);
+    for (const row of data ?? []) {
+      rows.push({
+        matricula: (row as any)['MATRICULA'] ?? '',
+        colaborador: (row as any)['COLABORADOR'] ?? '',
+        servicoGdis: (row as any)['SERVIÇO GDIS'] ?? null,
+        serial: (row as any)['Serial'] ?? '',
+        valor: typeof (row as any)['VALOR'] === 'number' ? (row as any)['VALOR'] : 0,
+        dias: typeof (row as any)['DIAS DE ATRIBUIÇÃO'] === 'number' ? (row as any)['DIAS DE ATRIBUIÇÃO'] : 0,
+        data: (row as any)['Data'] ?? '',
+      });
+    }
+    if ((data ?? []).length < PAGE) break;
+    from += PAGE;
+  }
+
+  return rows.sort((a, b) => b.dias - a.dias);
 }
 

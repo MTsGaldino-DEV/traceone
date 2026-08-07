@@ -16,13 +16,10 @@ import {
   Pencil,
   Undo2,
   Trash2,
-  Download,
 } from "lucide-react";
-import * as XLSX from "xlsx";
 import {
   getServicosConferencia,
   getServicosAguardandoVinculacao,
-  getServicosPendentesAntigos,
   verificarVinculacoesPendentes,
   vincularServicoMedidor,
   reverterServicoPendente,
@@ -280,13 +277,15 @@ interface AguardandoRowProps {
   servico: ServicoReportAguardando;
   onVinculado: (servicoId: string) => void;
   onRevertido: (servicoId: string) => void;
+  onExcluido: (servicoId: string) => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
 }
 
-function AguardandoRow({ servico, onVinculado, onRevertido, addToast }: AguardandoRowProps) {
+function AguardandoRow({ servico, onVinculado, onRevertido, onExcluido, addToast }: AguardandoRowProps) {
   const [editando, setEditando] = useState(false);
   const [novoSerial, setNovoSerial] = useState(servico.serial_buscado);
   const [salvando, setSalvando] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -341,6 +340,20 @@ function AguardandoRow({ servico, onVinculado, onRevertido, addToast }: Aguardan
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Erro ao reverter.");
       setSalvando(false);
+    }
+  };
+
+  const handleExcluir = async () => {
+    if (!confirm(`Excluir o serviço ${servico.servico}? Use quando o medidor não é nosso. Esta ação não pode ser desfeita.`)) return;
+    setExcluindo(true);
+    setErro(null);
+    try {
+      await deleteServicoReport(servico.servico);
+      addToast("info", `Serviço ${servico.servico} excluído.`);
+      onExcluido(servico.servico);
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Erro ao excluir.");
+      setExcluindo(false);
     }
   };
 
@@ -410,6 +423,14 @@ function AguardandoRow({ servico, onVinculado, onRevertido, addToast }: Aguardan
             {salvando ? <Loader2 size={11} className="animate-spin" /> : <Undo2 size={11} />}
             Reverter
           </button>
+          <button
+            onClick={handleExcluir}
+            disabled={salvando || editando || excluindo}
+            title="Excluir (medidor não é nosso)"
+            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-red-600 bg-red-50 border border-red-200 rounded-lg hover:bg-red-100 disabled:opacity-40 transition-colors"
+          >
+            {excluindo ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+          </button>
         </div>
       </td>
     </tr>
@@ -434,9 +455,6 @@ export default function ConferenciaPage() {
 
   // ── Estado: verificação ───────────────────────────────────────────────────
   const [verificando, setVerificando] = useState(false);
-
-  // ── Estado: exportação de pendentes antigos ───────────────────────────────
-  const [exportando, setExportando] = useState(false);
 
   const { toasts, addToast } = useToasts();
   const copyBtnRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
@@ -515,6 +533,11 @@ export default function ConferenciaPage() {
     setTotalAguardando((t) => Math.max(0, t - 1));
   }, []);
 
+  const handleExcluidoDeAguardando = useCallback((servicoId: string) => {
+    setAguardando((prev) => prev.filter((s) => s.servico !== servicoId));
+    setTotalAguardando((t) => Math.max(0, t - 1));
+  }, []);
+
   const handleRevertido = useCallback((servicoId: string) => {
     setAguardando((prev) => prev.filter((s) => s.servico !== servicoId));
     setTotalAguardando((t) => Math.max(0, t - 1));
@@ -539,40 +562,6 @@ export default function ConferenciaPage() {
       addToast("error", err instanceof Error ? err.message : "Erro ao verificar.");
     } finally {
       setVerificando(false);
-    }
-  };
-
-  const handleExportarAntigos = async () => {
-    setExportando(true);
-    try {
-      const rows = await getServicosPendentesAntigos(45);
-      if (rows.length === 0) {
-        addToast("info", "Nenhum serviço pendente há mais de 45 dias.");
-        return;
-      }
-
-      const hoje = new Date();
-      const planilha = rows.map((s) => {
-        const termino = new Date(s.termino);
-        const diasPendente = Math.floor((hoje.getTime() - termino.getTime()) / (1000 * 60 * 60 * 24));
-        return {
-          "Nº Serviço": s.servico,
-          "Matrícula": s.matricula ?? "",
-          "Término": termino.toLocaleDateString("pt-BR"),
-          "Dias Pendente": diasPendente,
-          "Tipo Serv.": s.tipo_serv ?? "",
-        };
-      });
-
-      const ws = XLSX.utils.json_to_sheet(planilha);
-      const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, "Pendentes +45 dias");
-      const dataArquivo = hoje.toISOString().slice(0, 10);
-      XLSX.writeFile(wb, `pendentes_45dias_${dataArquivo}.xlsx`);
-    } catch (err) {
-      addToast("error", err instanceof Error ? err.message : "Erro ao exportar.");
-    } finally {
-      setExportando(false);
     }
   };
 
@@ -654,22 +643,6 @@ export default function ConferenciaPage() {
             {verificando ? "Verificando…" : "Verificar vinculações"}
           </button>
         )}
-
-        {/* Exportar pendentes +45 dias */}
-        <button
-          id="btn-exportar-pendentes-45"
-          type="button"
-          onClick={handleExportarAntigos}
-          disabled={exportando}
-          title="Exportar pendentes há mais de 45 dias (Excel)"
-          className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-40"
-        >
-          {exportando ? (
-            <Loader2 size={15} className="animate-spin" />
-          ) : (
-            <Download size={15} />
-          )}
-        </button>
 
         {/* Reload */}
         <button
@@ -845,6 +818,7 @@ export default function ConferenciaPage() {
                         servico={s}
                         onVinculado={handleVinculadoDeAguardando}
                         onRevertido={handleRevertido}
+                        onExcluido={handleExcluidoDeAguardando}
                         addToast={addToast}
                       />
                     ))}

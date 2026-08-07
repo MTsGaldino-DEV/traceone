@@ -15,13 +15,18 @@ import {
   SearchCheck,
   Pencil,
   Undo2,
+  Trash2,
+  Download,
 } from "lucide-react";
+import * as XLSX from "xlsx";
 import {
   getServicosConferencia,
   getServicosAguardandoVinculacao,
+  getServicosPendentesAntigos,
   verificarVinculacoesPendentes,
   vincularServicoMedidor,
   reverterServicoPendente,
+  deleteServicoReport,
 } from "../../../../lib/api";
 import type {
   ServicoReportConferencia,
@@ -63,6 +68,7 @@ interface RowProps {
   servico: ServicoReportConferencia;
   onVinculado: (servicoId: string) => void;
   onAguardando: (servicoId: string) => void;
+  onExcluido: (servicoId: string) => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
   isNext: boolean;
   copyBtnRef?: (el: HTMLButtonElement | null) => void;
@@ -72,12 +78,14 @@ function ConferenciaRow({
   servico,
   onVinculado,
   onAguardando,
+  onExcluido,
   addToast,
   isNext,
   copyBtnRef,
 }: RowProps) {
   const [serial, setSerial] = useState("");
   const [vinculando, setVinculando] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -131,6 +139,20 @@ function ConferenciaRow({
     if (e.key === "Enter") {
       e.preventDefault();
       handleVincular();
+    }
+  };
+
+  const handleExcluir = async () => {
+    if (!confirm(`Excluir o serviço ${servico.servico}? Use quando o medidor não é nosso. Esta ação não pode ser desfeita.`)) return;
+    setExcluindo(true);
+    setErro(null);
+    try {
+      await deleteServicoReport(servico.servico);
+      addToast("info", `Serviço ${servico.servico} excluído.`);
+      onExcluido(servico.servico);
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Erro ao excluir.");
+      setExcluindo(false);
     }
   };
 
@@ -228,6 +250,16 @@ function ConferenciaRow({
               <Link2 size={13} />
             )}
             {vinculando ? "…" : "Vincular"}
+          </button>
+          <button
+            id={`excluir-btn-${servico.servico}`}
+            type="button"
+            onClick={handleExcluir}
+            disabled={excluindo}
+            title="Excluir (medidor não é nosso)"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-red-600 bg-red-50 border border-red-200 text-xs font-bold rounded-lg hover:bg-red-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {excluindo ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
           </button>
         </div>
         {erro && (
@@ -403,6 +435,9 @@ export default function ConferenciaPage() {
   // ── Estado: verificação ───────────────────────────────────────────────────
   const [verificando, setVerificando] = useState(false);
 
+  // ── Estado: exportação de pendentes antigos ───────────────────────────────
+  const [exportando, setExportando] = useState(false);
+
   const { toasts, addToast } = useToasts();
   const copyBtnRefs = useRef<Map<string, HTMLButtonElement | null>>(new Map());
 
@@ -460,6 +495,11 @@ export default function ConferenciaPage() {
     setTotalServicos((t) => Math.max(0, t - 1));
   }, []);
 
+  const handleExcluido = useCallback((servicoId: string) => {
+    setServicos((prev) => prev.filter((s) => s.servico !== servicoId));
+    setTotalServicos((t) => Math.max(0, t - 1));
+  }, []);
+
   const handleAguardando = useCallback(
     (servicoId: string) => {
       setServicos((prev) => prev.filter((s) => s.servico !== servicoId));
@@ -499,6 +539,40 @@ export default function ConferenciaPage() {
       addToast("error", err instanceof Error ? err.message : "Erro ao verificar.");
     } finally {
       setVerificando(false);
+    }
+  };
+
+  const handleExportarAntigos = async () => {
+    setExportando(true);
+    try {
+      const rows = await getServicosPendentesAntigos(45);
+      if (rows.length === 0) {
+        addToast("info", "Nenhum serviço pendente há mais de 45 dias.");
+        return;
+      }
+
+      const hoje = new Date();
+      const planilha = rows.map((s) => {
+        const termino = new Date(s.termino);
+        const diasPendente = Math.floor((hoje.getTime() - termino.getTime()) / (1000 * 60 * 60 * 24));
+        return {
+          "Nº Serviço": s.servico,
+          "Matrícula": s.matricula ?? "",
+          "Término": termino.toLocaleDateString("pt-BR"),
+          "Dias Pendente": diasPendente,
+          "Tipo Serv.": s.tipo_serv ?? "",
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(planilha);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Pendentes +45 dias");
+      const dataArquivo = hoje.toISOString().slice(0, 10);
+      XLSX.writeFile(wb, `pendentes_45dias_${dataArquivo}.xlsx`);
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Erro ao exportar.");
+    } finally {
+      setExportando(false);
     }
   };
 
@@ -580,6 +654,22 @@ export default function ConferenciaPage() {
             {verificando ? "Verificando…" : "Verificar vinculações"}
           </button>
         )}
+
+        {/* Exportar pendentes +45 dias */}
+        <button
+          id="btn-exportar-pendentes-45"
+          type="button"
+          onClick={handleExportarAntigos}
+          disabled={exportando}
+          title="Exportar pendentes há mais de 45 dias (Excel)"
+          className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-40"
+        >
+          {exportando ? (
+            <Loader2 size={15} className="animate-spin" />
+          ) : (
+            <Download size={15} />
+          )}
+        </button>
 
         {/* Reload */}
         <button
@@ -667,6 +757,7 @@ export default function ConferenciaPage() {
                       servico={s}
                       onVinculado={handleVinculado}
                       onAguardando={handleAguardando}
+                      onExcluido={handleExcluido}
                       addToast={addToast}
                       isNext={idx === 0}
                       copyBtnRef={(el) => copyBtnRefs.current.set(s.servico, el)}

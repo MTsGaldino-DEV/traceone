@@ -304,6 +304,31 @@ export async function getServicosAguardandoVinculacao(
   return { data: (data ?? []) as ServicoReportAguardando[], total: count ?? 0 };
 }
 
+export async function getServicosPendentesAntigos(
+  diasLimite = 45
+): Promise<ServicoReportConferencia[]> {
+  const limite = new Date();
+  limite.setDate(limite.getDate() - diasLimite);
+
+  const { data, error } = await supabase
+    .from('servicos_report')
+    .select('*')
+    .eq('status_conferencia', 'PENDENTE')
+    .lt('termino', limite.toISOString())
+    .order('termino', { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data ?? []) as ServicoReportConferencia[];
+}
+
+export async function deleteServicoReport(servicoId: string): Promise<void> {
+  const { error } = await supabase
+    .from('servicos_report')
+    .delete()
+    .eq('servico', servicoId);
+  if (error) throw new Error(error.message);
+}
+
 export async function reverterServicoPendente(servicoId: string): Promise<void> {
   const { error } = await supabase
     .from('servicos_report')

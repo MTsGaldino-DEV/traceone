@@ -272,9 +272,11 @@ interface MetricCardProps {
   valueColor?: string; // override for value text color
   loading?: boolean;
   action?: React.ReactNode; // slot opcional no canto superior direito
+  onClick?: () => void;     // torna o card inteiro clicável (exceto a action)
+  active?: boolean;         // destaque visual quando o filtro do card está aplicado
 }
 
-function MetricCard({ icon: Icon, label, value, sub, iconColor, iconBg, valueColor, loading, action }: MetricCardProps) {
+function MetricCard({ icon: Icon, label, value, sub, iconColor, iconBg, valueColor, loading, action, onClick, active }: MetricCardProps) {
   if (loading) {
     return (
       <div className="bg-white rounded-[10px] border border-gray-200 p-4 animate-pulse">
@@ -288,8 +290,18 @@ function MetricCard({ icon: Icon, label, value, sub, iconColor, iconBg, valueCol
     );
   }
   return (
-    <div className="bg-white rounded-[10px] border border-gray-200 p-4 flex flex-col relative">
-      {action && <div className="absolute top-3 right-3">{action}</div>}
+    <div
+      onClick={onClick}
+      title={onClick ? (active ? "Clique para remover o filtro" : "Clique para filtrar a lista") : undefined}
+      className={`bg-white rounded-[10px] border p-4 flex flex-col relative ${
+        onClick ? "cursor-pointer hover:border-gray-300 transition-colors" : ""
+      } ${active ? "border-red-300 ring-1 ring-red-200" : "border-gray-200"}`}
+    >
+      {action && (
+        <div className="absolute top-3 right-3" onClick={(e) => e.stopPropagation()}>
+          {action}
+        </div>
+      )}
       <div className="flex items-center gap-2 mb-3">
         <div className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${iconBg}`}>
           <Icon size={15} className={iconColor} strokeWidth={1.75} />
@@ -361,6 +373,7 @@ export default function DashboardPage() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [loadingMetrics, setLoadingMetrics] = useState(true);
   const [exportando45, setExportando45] = useState(false);
+  const [filterAcima45, setFilterAcima45] = useState(false);
 
   // Filter options
   const [supervisorOptions, setSupervisorOptions] = useState<string[]>([]);
@@ -469,6 +482,7 @@ export default function DashboardPage() {
           conclusaoInicio: conclusaoInicio || undefined,
           conclusaoFim: conclusaoFim || undefined,
           materialCategorias: filterMaterialCategoria.length > 0 ? filterMaterialCategoria : undefined,
+          diasMin: filterAcima45 ? 45 : undefined,
           sorts: sorts.length > 0 ? sorts : undefined,
           page: p,
           pageSize: PAGE_SIZE,
@@ -492,6 +506,7 @@ export default function DashboardPage() {
       conclusaoInicio,
       conclusaoFim,
       filterMaterialCategoria,
+      filterAcima45,
       sorts,
     ]
   );
@@ -601,6 +616,7 @@ export default function DashboardPage() {
     setConclusaoInicio("");
     setConclusaoFim("");
     setFilterMaterialCategoria([]);
+    setFilterAcima45(false);
     setSorts([]);
   };
 
@@ -617,7 +633,17 @@ export default function DashboardPage() {
     conclusaoInicio ||
     conclusaoFim ||
     filterMaterialCategoria.length > 0 ||
+    filterAcima45 ||
     sorts.length > 0;
+
+  const handleToggleFiltroAcima45 = () => {
+    setFilterAcima45((prev) => {
+      const next = !prev;
+      if (next) setFilterStatus(["PENDENTE"]);
+      return next;
+    });
+    setPage(1);
+  };
 
   // ── export ────────────────────────────────────────────────────────────────
 
@@ -916,6 +942,8 @@ export default function DashboardPage() {
           iconColor="text-red-600"
           valueColor="text-red-600"
           loading={loadingMetrics}
+          onClick={handleToggleFiltroAcima45}
+          active={filterAcima45}
           action={
             <button
               type="button"

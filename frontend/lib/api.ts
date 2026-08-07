@@ -121,6 +121,7 @@ export async function getMedidoresCompleto(filters?: {
   conclusaoInicio?: string;
   conclusaoFim?: string;
   materialCategorias?: string[];
+  diasMin?: number;
   sorts?: SortConfig[];
   page?: number;
   pageSize?: number;
@@ -163,6 +164,7 @@ export async function getMedidoresCompleto(filters?: {
   if (filters?.atribuicaoFim) query = query.lte('Data', filters.atribuicaoFim);
   if (filters?.conclusaoInicio) query = query.gte('Data da conclusão', filters.conclusaoInicio);
   if (filters?.conclusaoFim) query = query.lte('Data da conclusão', filters.conclusaoFim);
+  if (filters?.diasMin !== undefined) query = query.gt('"DIAS DE ATRIBUIÇÃO"', filters.diasMin);
 
   if (filters?.materialCategorias && filters.materialCategorias.length > 0) {
     let sapCodes: string[] = [];

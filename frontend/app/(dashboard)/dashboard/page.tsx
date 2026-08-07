@@ -32,6 +32,7 @@ import {
 import * as XLSX from "xlsx";
 import {
   getMedidoresCompleto,
+  getAllMedidoresCompleto,
   updateMedidor,
   deleteMedidor,
   getColaboradores,
@@ -651,7 +652,7 @@ export default function DashboardPage() {
     setExporting(true);
     try {
       const finalMatriculas = buildFinalMatriculas();
-      const { data: all } = await getMedidoresCompleto({
+      const all = await getAllMedidoresCompleto({
         matriculas: finalMatriculas.length > 0 ? finalMatriculas : undefined,
         supervisores: filterSupervisores.length > 0 ? filterSupervisores : undefined,
         servicoGdis: filterServicoGdis || undefined,
@@ -662,6 +663,7 @@ export default function DashboardPage() {
         conclusaoInicio: conclusaoInicio || undefined,
         conclusaoFim: conclusaoFim || undefined,
         materialCategorias: filterMaterialCategoria.length > 0 ? filterMaterialCategoria : undefined,
+        diasMin: filterAcima45 ? 45 : undefined,
         sorts: sorts.length > 0 ? sorts : undefined,
       });
       const headers = ALL_EXPORT_COLS.join(";");

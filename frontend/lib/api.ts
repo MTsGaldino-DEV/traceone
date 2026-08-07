@@ -193,6 +193,25 @@ export async function getMedidoresCompleto(filters?: {
   return { data: (data ?? []) as MedidorCompleto[], total: count ?? 0 };
 }
 
+// Busca todos os registros de uma filtragem, paginando em blocos de 1000
+// (limite máximo do PostgREST por requisição) até esgotar os resultados.
+export async function getAllMedidoresCompleto(
+  filters?: Omit<Parameters<typeof getMedidoresCompleto>[0], 'page' | 'pageSize'>
+): Promise<MedidorCompleto[]> {
+  const all: MedidorCompleto[] = [];
+  const pageSize = 1000;
+  let page = 1;
+
+  while (true) {
+    const { data } = await getMedidoresCompleto({ ...filters, page, pageSize });
+    all.push(...data);
+    if (data.length < pageSize) break;
+    page++;
+  }
+
+  return all;
+}
+
 export async function createMedidor(
   payload: Pick<Medidor, 'data' | 'material_sap' | 'serial' | 'matricula' | 'servico_campo' | 'equipe'>
 ): Promise<Medidor> {

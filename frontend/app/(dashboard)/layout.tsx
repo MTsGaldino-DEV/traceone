@@ -8,6 +8,7 @@ import {
   PlusCircle,
   UploadCloud,
   CheckSquare,
+  AlarmClockCheck,
   Users,
   LogOut,
   ChevronRight,
@@ -24,6 +25,7 @@ const navItems = [
   { label: "Lançamento Manual", href: "/dashboard/lancamento", icon: PlusCircle, despachante: false },
   { label: "Importar Relatório", href: "/dashboard/importacao", icon: UploadCloud, despachante: false },
   { label: "Conferência", href: "/dashboard/conferencia", icon: CheckSquare, despachante: false },
+  { label: "Conferência +45 dias", href: "/dashboard/conferencia-45dias", icon: AlarmClockCheck, despachante: false },
 ];
 
 const usuariosNavItem = { label: "Gestão de Usuários", href: "/dashboard/usuarios", icon: Users };

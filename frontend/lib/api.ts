@@ -707,6 +707,59 @@ export async function getMedidoresMetrics(filters?: MetricsFilters): Promise<Das
   };
 }
 
+export interface MedidorConferencia45Dias {
+  id: string;
+  matricula: string;
+  colaborador: string;
+  servicoGdis: string | null;
+  serial: string;
+  dias: number;
+  data: string;
+}
+
+export async function getMedidoresConferencia45Dias(
+  page = 1,
+  pageSize = 100,
+  diasAscending = false,
+  diasLimite = 45
+): Promise<{ data: MedidorConferencia45Dias[]; total: number }> {
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  const { data, count, error } = await supabase
+    .from('vw_medidores_completo')
+    .select('id,"MATRICULA","COLABORADOR","SERVIÇO GDIS","Serial","DIAS DE ATRIBUIÇÃO","Data"', { count: 'exact' })
+    .eq('"Concluído/Pendente"', 'PENDENTE')
+    .gt('"DIAS DE ATRIBUIÇÃO"', diasLimite)
+    .order('"DIAS DE ATRIBUIÇÃO"', { ascending: diasAscending })
+    .range(from, to);
+
+  if (error) throw new Error(error.message);
+
+  const rows: MedidorConferencia45Dias[] = (data ?? []).map((row) => {
+    const r = row as Record<string, unknown>;
+    return {
+      id: r['id'] as string,
+      matricula: (r['MATRICULA'] as string) ?? '',
+      colaborador: (r['COLABORADOR'] as string) ?? '',
+      servicoGdis: (r['SERVIÇO GDIS'] as string | null) ?? null,
+      serial: (r['Serial'] as string) ?? '',
+      dias: typeof r['DIAS DE ATRIBUIÇÃO'] === 'number' ? (r['DIAS DE ATRIBUIÇÃO'] as number) : 0,
+      data: (r['Data'] as string) ?? '',
+    };
+  });
+
+  return { data: rows, total: count ?? 0 };
+}
+
+export async function vincularServicoGdisMedidor(id: string, servicoGdis: string | null): Promise<void> {
+  const { error } = await supabase
+    .from('medidores_list')
+    .update({ servico_gdis: servicoGdis })
+    .eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
 export interface MedidorAcima45Dias {
   matricula: string;
   colaborador: string;

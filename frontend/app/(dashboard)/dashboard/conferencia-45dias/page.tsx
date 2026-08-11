@@ -11,6 +11,8 @@ import {
   X,
   ArrowUp,
   ArrowDown,
+  EyeOff,
+  Eye,
 } from "lucide-react";
 import {
   getMedidoresConferencia45Dias,
@@ -46,10 +48,11 @@ function useToasts() {
 interface RowProps {
   medidor: MedidorConferencia45Dias;
   onVinculado: (id: string, servicoGdis: string) => void;
+  onOcultar: (id: string) => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
 }
 
-function MedidorRow({ medidor, onVinculado, addToast }: RowProps) {
+function MedidorRow({ medidor, onVinculado, onOcultar, addToast }: RowProps) {
   const [servicoGdis, setServicoGdis] = useState(medidor.servicoGdis ?? "");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -147,6 +150,17 @@ function MedidorRow({ medidor, onVinculado, addToast }: RowProps) {
             {salvando ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}
             {salvando ? "…" : jaVinculado ? "Atualizar" : "Vincular"}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              onOcultar(medidor.id);
+              addToast("info", `Linha do medidor ${medidor.serial} ocultada nesta sessão.`);
+            }}
+            title="Ocultar (medidor não encontrado no GDIS) — some só nesta sessão"
+            className="flex items-center gap-1.5 px-2.5 py-1.5 text-slate-500 bg-slate-100 border border-slate-200 text-xs font-bold rounded-lg hover:bg-slate-200 transition-colors"
+          >
+            <EyeOff size={13} />
+          </button>
         </div>
         {erro && (
           <div className="flex items-start gap-1.5 mt-1.5">
@@ -167,6 +181,7 @@ export default function Conferencia45DiasPage() {
   const [diasAscending, setDiasAscending] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [ocultosIds, setOcultosIds] = useState<Set<string>>(new Set());
 
   const { toasts, addToast } = useToasts();
 
@@ -198,6 +213,18 @@ export default function Conferencia45DiasPage() {
       prev.map((m) => (m.id === id ? { ...m, servicoGdis } : m))
     );
   }, []);
+
+  const handleOcultar = useCallback((id: string) => {
+    setOcultosIds((prev) => new Set(prev).add(id));
+  }, []);
+
+  const handleReexibirTodos = () => {
+    setOcultosIds(new Set());
+    addToast("info", "Linhas ocultas reexibidas.");
+  };
+
+  const medidoresVisiveis = medidores.filter((m) => !ocultosIds.has(m.id));
+  const ocultosNaPagina = medidores.length - medidoresVisiveis.length;
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const reload = () => load(page, diasAscending);
@@ -245,6 +272,18 @@ export default function Conferencia45DiasPage() {
           </div>
         )}
 
+        {ocultosIds.size > 0 && (
+          <button
+            type="button"
+            onClick={handleReexibirTodos}
+            title="Reexibir todas as linhas ocultadas"
+            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-lg transition-colors"
+          >
+            <Eye size={13} />
+            Reexibir {ocultosIds.size} ocultado{ocultosIds.size !== 1 ? "s" : ""}
+          </button>
+        )}
+
         <button
           type="button"
           onClick={reload}
@@ -285,7 +324,23 @@ export default function Conferencia45DiasPage() {
           </div>
         )}
 
-        {!loading && medidores.length > 0 && (
+        {!loading && medidores.length > 0 && medidoresVisiveis.length === 0 && (
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-400">
+            <EyeOff size={28} className="text-slate-300" />
+            <p className="text-sm font-bold text-slate-600">
+              Todas as linhas desta página foram ocultadas.
+            </p>
+            <button
+              type="button"
+              onClick={handleReexibirTodos}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-800"
+            >
+              Reexibir
+            </button>
+          </div>
+        )}
+
+        {!loading && medidoresVisiveis.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -319,11 +374,22 @@ export default function Conferencia45DiasPage() {
                 </tr>
               </thead>
               <tbody>
-                {medidores.map((m) => (
-                  <MedidorRow key={m.id} medidor={m} onVinculado={handleVinculado} addToast={addToast} />
+                {medidoresVisiveis.map((m) => (
+                  <MedidorRow
+                    key={m.id}
+                    medidor={m}
+                    onVinculado={handleVinculado}
+                    onOcultar={handleOcultar}
+                    addToast={addToast}
+                  />
                 ))}
               </tbody>
             </table>
+            {ocultosNaPagina > 0 && (
+              <p className="px-4 py-2 text-xs text-slate-400">
+                {ocultosNaPagina} linha{ocultosNaPagina !== 1 ? "s" : ""} ocultada{ocultosNaPagina !== 1 ? "s" : ""} nesta página.
+              </p>
+            )}
           </div>
         )}
 

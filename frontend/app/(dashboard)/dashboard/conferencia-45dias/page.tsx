@@ -12,7 +12,7 @@ import {
   ArrowUp,
   ArrowDown,
   EyeOff,
-  Eye,
+  Undo2,
 } from "lucide-react";
 import {
   getMedidoresConferencia45Dias,
@@ -173,6 +173,53 @@ function MedidorRow({ medidor, onVinculado, onOcultar, addToast }: RowProps) {
   );
 }
 
+// ─── Linha da seção "Aguardando verificação" ─────────────────────────────────
+interface OcultoRowProps {
+  medidor: MedidorConferencia45Dias;
+  onReverter: (id: string) => void;
+}
+
+function OcultoRow({ medidor, onReverter }: OcultoRowProps) {
+  const dataFormatada = (() => {
+    try {
+      return new Date(medidor.data).toLocaleDateString("pt-BR");
+    } catch {
+      return medidor.data;
+    }
+  })();
+
+  return (
+    <tr className="border-b border-amber-100 hover:bg-amber-50/30 transition-colors">
+      <td className="px-4 py-3 whitespace-nowrap">
+        <span className="inline-flex items-center px-2 py-0.5 text-xs font-black rounded-md border text-amber-700 bg-amber-50 border-amber-200">
+          {medidor.dias} dias
+        </span>
+      </td>
+      <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{dataFormatada}</td>
+      <td className="px-4 py-3 whitespace-nowrap">
+        <span className="font-mono text-sm font-bold text-slate-800">{medidor.serial}</span>
+      </td>
+      <td className="px-4 py-3 text-xs text-slate-600 font-mono whitespace-nowrap">
+        {medidor.matricula || <span className="text-slate-300">—</span>}
+      </td>
+      <td className="px-4 py-3 text-xs text-slate-600 max-w-[180px] truncate">
+        {medidor.colaborador || <span className="text-slate-300">—</span>}
+      </td>
+      <td className="px-3 py-3">
+        <button
+          type="button"
+          onClick={() => onReverter(medidor.id)}
+          title="Voltar para a lista de conferência"
+          className="flex items-center gap-1.5 px-2.5 py-1.5 text-slate-600 bg-slate-50 border border-slate-200 text-xs font-bold rounded-lg hover:bg-slate-100 transition-colors"
+        >
+          <Undo2 size={13} />
+          Reverter
+        </button>
+      </td>
+    </tr>
+  );
+}
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 export default function Conferencia45DiasPage() {
   const [medidores, setMedidores] = useState<MedidorConferencia45Dias[]>([]);
@@ -218,13 +265,16 @@ export default function Conferencia45DiasPage() {
     setOcultosIds((prev) => new Set(prev).add(id));
   }, []);
 
-  const handleReexibirTodos = () => {
-    setOcultosIds(new Set());
-    addToast("info", "Linhas ocultas reexibidas.");
-  };
+  const handleReverter = useCallback((id: string) => {
+    setOcultosIds((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+  }, []);
 
   const medidoresVisiveis = medidores.filter((m) => !ocultosIds.has(m.id));
-  const ocultosNaPagina = medidores.length - medidoresVisiveis.length;
+  const medidoresOcultos = medidores.filter((m) => ocultosIds.has(m.id));
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const reload = () => load(page, diasAscending);
@@ -270,18 +320,6 @@ export default function Conferencia45DiasPage() {
             <p className="text-xs text-slate-500">Pendentes +45 dias</p>
             <p className="text-lg font-black text-slate-900 leading-tight">{total}</p>
           </div>
-        )}
-
-        {ocultosIds.size > 0 && (
-          <button
-            type="button"
-            onClick={handleReexibirTodos}
-            title="Reexibir todas as linhas ocultadas"
-            className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 text-xs font-bold rounded-lg transition-colors"
-          >
-            <Eye size={13} />
-            Reexibir {ocultosIds.size} ocultado{ocultosIds.size !== 1 ? "s" : ""}
-          </button>
         )}
 
         <button
@@ -330,13 +368,7 @@ export default function Conferencia45DiasPage() {
             <p className="text-sm font-bold text-slate-600">
               Todas as linhas desta página foram ocultadas.
             </p>
-            <button
-              type="button"
-              onClick={handleReexibirTodos}
-              className="text-xs font-semibold text-blue-600 hover:text-blue-800"
-            >
-              Reexibir
-            </button>
+            <p className="text-xs">Veja a seção &quot;Aguardando verificação&quot; abaixo.</p>
           </div>
         )}
 
@@ -385,11 +417,6 @@ export default function Conferencia45DiasPage() {
                 ))}
               </tbody>
             </table>
-            {ocultosNaPagina > 0 && (
-              <p className="px-4 py-2 text-xs text-slate-400">
-                {ocultosNaPagina} linha{ocultosNaPagina !== 1 ? "s" : ""} ocultada{ocultosNaPagina !== 1 ? "s" : ""} nesta página.
-              </p>
-            )}
           </div>
         )}
 
@@ -401,6 +428,56 @@ export default function Conferencia45DiasPage() {
           onPageChange={setPage}
           label="medidores"
         />
+
+        {/* ════════ SEÇÃO: AGUARDANDO VERIFICAÇÃO (ocultados) ════════ */}
+        {medidoresOcultos.length > 0 && (
+          <section className="border-t border-slate-200">
+            <div className="px-5 py-2 bg-amber-50 border-b border-amber-200 flex items-center gap-2">
+              <EyeOff size={13} className="text-amber-500" />
+              <span className="text-xs font-bold text-amber-700 uppercase tracking-wide">
+                Aguardando verificação
+              </span>
+              <span className="ml-1 text-xs text-amber-500">
+                — serviço não encontrado no GDIS, ocultado nesta sessão
+              </span>
+              <span className="ml-auto text-xs text-amber-500">
+                {medidoresOcultos.length} medidor{medidoresOcultos.length !== 1 ? "es" : ""}
+              </span>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-amber-50/60 border-b border-amber-100">
+                    <th className="px-4 py-2.5 text-left text-xs font-bold text-amber-700 uppercase tracking-wide whitespace-nowrap">
+                      Dias
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-bold text-amber-700 uppercase tracking-wide">
+                      Data Atribuição
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-bold text-amber-700 uppercase tracking-wide">
+                      Serial
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-bold text-amber-700 uppercase tracking-wide">
+                      Matrícula
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-bold text-amber-700 uppercase tracking-wide">
+                      Colaborador
+                    </th>
+                    <th className="px-3 py-2.5 text-left text-xs font-bold text-amber-700 uppercase tracking-wide">
+                      Ações
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {medidoresOcultos.map((m) => (
+                    <OcultoRow key={m.id} medidor={m} onReverter={handleReverter} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        )}
       </div>
     </div>
   );

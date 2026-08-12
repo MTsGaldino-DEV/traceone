@@ -75,7 +75,7 @@ export default function DashboardLayout({
   useEffect(() => {
     if (!profile) return;
     const allowed = allNavItems.some(
-      (n) => pathname === n.href || (n.href !== "/dashboard" && pathname.startsWith(n.href))
+      (n) => pathname === n.href || (n.href !== "/dashboard" && pathname.startsWith(n.href + "/"))
     );
     if (!allowed) router.replace("/dashboard");
   }, [profile, pathname]);
@@ -156,7 +156,7 @@ export default function DashboardLayout({
           {allNavItems.map(({ label, href, icon: Icon }) => {
             const isActive =
               pathname === href ||
-              (href !== "/dashboard" && pathname.startsWith(href));
+              (href !== "/dashboard" && pathname.startsWith(href + "/"));
             return (
               <Link
                 key={href}
@@ -222,7 +222,7 @@ export default function DashboardLayout({
             {allNavItems.find(
               (n) =>
                 pathname === n.href ||
-                (n.href !== "/dashboard" && pathname.startsWith(n.href))
+                (n.href !== "/dashboard" && pathname.startsWith(n.href + "/"))
             )?.label ?? "Dashboard"}
           </h1>
         </header>

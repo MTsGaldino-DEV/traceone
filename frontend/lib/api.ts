@@ -755,7 +755,11 @@ export async function getMedidoresConferencia45Dias(
 export async function vincularServicoGdisMedidor(id: string, servicoGdis: string | null): Promise<void> {
   const { error } = await supabase
     .from('medidores_list')
-    .update({ servico_gdis: servicoGdis })
+    .update({
+      servico_gdis: servicoGdis,
+      status: 'CONCLUIDO',
+      data_conclusao: new Date().toISOString().slice(0, 10),
+    })
     .eq('id', id);
   if (error) throw new Error(error.message);
 }

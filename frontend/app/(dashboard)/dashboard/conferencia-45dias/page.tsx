@@ -47,7 +47,7 @@ function useToasts() {
 // ─── Linha da tabela ──────────────────────────────────────────────────────────
 interface RowProps {
   medidor: MedidorConferencia45Dias;
-  onVinculado: (id: string, servicoGdis: string) => void;
+  onVinculado: (id: string) => void;
   onOcultar: (id: string) => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
 }
@@ -76,7 +76,7 @@ function MedidorRow({ medidor, onVinculado, onOcultar, addToast }: RowProps) {
     try {
       await vincularServicoGdisMedidor(medidor.id, s);
       addToast("success", `✅ Serviço GDIS ${s} vinculado ao medidor ${medidor.serial}`);
-      onVinculado(medidor.id, s);
+      onVinculado(medidor.id);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Erro ao vincular.");
     } finally {
@@ -255,10 +255,9 @@ export default function Conferencia45DiasPage() {
     setPage(1);
   };
 
-  const handleVinculado = useCallback((id: string, servicoGdis: string) => {
-    setMedidores((prev) =>
-      prev.map((m) => (m.id === id ? { ...m, servicoGdis } : m))
-    );
+  const handleVinculado = useCallback((id: string) => {
+    setMedidores((prev) => prev.filter((m) => m.id !== id));
+    setTotal((prev) => Math.max(0, prev - 1));
   }, []);
 
   const handleOcultar = useCallback((id: string) => {

@@ -19,8 +19,9 @@ import {
   ChevronRight,
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import { importServicos, getMedidoresParaSync, syncAtribuicoes } from "../../../../lib/api";
+import { importServicos, getMedidoresParaSync, syncAtribuicoes, getColaboradores } from "../../../../lib/api";
 import type { MedidorParaSync } from "../../../../lib/api";
+import type { Colaborador } from "../../../../lib/supabase";
 
 // ═══════════════════════════════════════════════════════════════════
 // SEÇÃO GDIS — tipos e lógica
@@ -145,6 +146,7 @@ interface SyncReport {
   devolvidos: AtribItem[];    // delete
   reatribuicoes: AtribItem[]; // matricula mudou
   divergencias: AtribItem[];  // material/data diverge
+  invalidas: AtribItem[];     // matrícula não existe no sistema
 }
 
 function parseDateAtrib(s: string): string | null {
@@ -156,11 +158,13 @@ function parseDateAtrib(s: string): string | null {
 
 function buildSyncReport(
   planilhaRows: { serial: string; material: string; matricula: string | null; data: string | null }[],
-  dbMap: Map<string, MedidorParaSync>
+  dbMap: Map<string, MedidorParaSync>,
+  colabMap: Set<string> // matrículas válidas
 ): SyncReport {
   const devolvidos: AtribItem[] = [];
   const reatribuicoes: AtribItem[] = [];
   const divergencias: AtribItem[] = [];
+  const invalidas: AtribItem[] = [];
 
   for (const row of planilhaRows) {
     const db = dbMap.get(row.serial);
@@ -168,6 +172,11 @@ function buildSyncReport(
 
     if (!row.matricula) {
       devolvidos.push({ id: db.id, serial: row.serial, detail: `Recebedor vazio — será excluído` });
+      continue;
+    }
+
+    if (!colabMap.has(row.matricula)) {
+      invalidas.push({ id: db.id, serial: row.serial, detail: `Matrícula "${row.matricula}" não existe no sistema` });
       continue;
     }
 
@@ -205,7 +214,7 @@ function buildSyncReport(
     }
   }
 
-  return { devolvidos, reatribuicoes, divergencias };
+  return { devolvidos, reatribuicoes, divergencias, invalidas };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -478,8 +487,19 @@ function AtribuicoesTab() {
       return;
     }
 
+    setProgress("Validando matrículas…");
+    let colaboradores: Colaborador[];
+    try {
+      colaboradores = await getColaboradores();
+    } catch (err) {
+      setStage("error");
+      setErrorMsg("Erro ao buscar colaboradores válidos.");
+      return;
+    }
+    const colabMap = new Set(colaboradores.map((c) => c.matricula));
+
     const dbMap = new Map<string, MedidorParaSync>(dbRecords.map((r) => [r.serial, r]));
-    const rep = buildSyncReport(planilhaRows, dbMap);
+    const rep = buildSyncReport(planilhaRows, dbMap, colabMap);
     setReport(rep);
     setStage("ready");
     setProgress("");
@@ -517,6 +537,7 @@ function AtribuicoesTab() {
   };
 
   const totalChanges = report ? report.devolvidos.length + new Set([...report.reatribuicoes, ...report.divergencias].map((i) => i.id)).size : 0;
+  const hasInvalidas = (report?.invalidas.length ?? 0) > 0;
 
   return (
     <div className="space-y-6">
@@ -565,6 +586,19 @@ function AtribuicoesTab() {
             <p className="text-xs text-slate-500 mt-1">Exportação SAP · Suporte: .xlsx, .xls, .csv</p>
           </div>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }} />
+        </div>
+      )}
+
+      {/* How it works */}
+      {stage === "idle" && (
+        <div className="p-4 bg-indigo-50 border border-indigo-200 rounded-xl">
+          <p className="text-xs font-semibold text-indigo-900 mb-2">Como funciona?</p>
+          <ul className="text-xs text-indigo-800 space-y-1">
+            <li>• Carregue a planilha exportada do SAP (formato padrão com 12 colunas)</li>
+            <li>• O sistema compara cada medidor com o banco de dados</li>
+            <li>• Identifica: mudanças de atribuição, material ou datas</li>
+            <li>• Exclui medidores sem recebedor (devolvidos)</li>
+          </ul>
         </div>
       )}
 
@@ -632,8 +666,16 @@ function AtribuicoesTab() {
               color="bg-orange-50 border-orange-200 text-orange-800"
               items={report.divergencias}
             />
+            {hasInvalidas && (
+              <CollapsibleList
+                title="Matrículas inválidas — não serão sincronizadas"
+                count={report.invalidas.length}
+                color="bg-red-50 border-red-200 text-red-800"
+                items={report.invalidas}
+              />
+            )}
 
-            {totalChanges === 0 && (
+            {totalChanges === 0 && !hasInvalidas && (
               <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
                 <CheckCircle2 size={20} className="text-emerald-500 mx-auto mb-1" />
                 <p className="text-sm font-semibold text-emerald-700">Tudo sincronizado! Nenhuma diferença encontrada.</p>
@@ -648,8 +690,9 @@ function AtribuicoesTab() {
                 </button>
                 <button
                   onClick={handleSync}
-                  disabled={totalChanges === 0}
+                  disabled={totalChanges === 0 || hasInvalidas}
                   className="flex-1 px-4 py-2.5 bg-[#1e3a5f] text-white font-bold text-sm rounded-xl hover:bg-[#2d5282] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
+                  title={hasInvalidas ? "Corrija as matrículas inválidas antes de sincronizar" : ""}
                 >
                   <RefreshCw size={16} />
                   Executar Sincronização ({totalChanges})

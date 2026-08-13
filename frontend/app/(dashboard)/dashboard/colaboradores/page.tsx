@@ -23,6 +23,7 @@ import {
 import type { Colaborador, Profile } from "../../../../lib/supabase";
 import { canManageColaboradores } from "../../../../lib/permissions";
 import { Pagination } from "../../../../components/Pagination";
+import { MultiSelectSearch } from "../../../../components/MultiSelectSearch";
 
 const PAGE_SIZE = 25;
 
@@ -32,10 +33,9 @@ interface ColabForm {
   supervisor: string;
   gc: string;
   go: string;
-  ativo: boolean;
 }
 
-const emptyForm: ColabForm = { nome: "", supervisor: "", gc: "", go: "", ativo: true };
+const emptyForm: ColabForm = { nome: "", supervisor: "", gc: "", go: "" };
 
 const inputClass =
   "w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400";
@@ -47,7 +47,11 @@ export default function ColaboradoresPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Busca + filtros
   const [search, setSearch] = useState("");
+  const [fSupervisor, setFSupervisor] = useState<string[]>([]);
+  const [fGc, setFGc] = useState<string[]>([]);
+  const [fGo, setFGo] = useState<string[]>([]);
   const [page, setPage] = useState(1);
 
   // Cadastro
@@ -83,8 +87,8 @@ export default function ColaboradoresPage() {
     });
   }, [router]);
 
-  // Sugestões pros campos de hierarquia, a partir do que já existe no cadastro
-  const sugestoes = useMemo(() => {
+  // Opções dos filtros e sugestões dos formulários, tiradas do próprio cadastro
+  const opcoes = useMemo(() => {
     const pick = (key: "supervisor" | "gc" | "go") =>
       [...new Set(colaboradores.map((c) => c[key]).filter(Boolean) as string[])].sort();
     return { supervisor: pick("supervisor"), gc: pick("gc"), go: pick("go") };
@@ -92,20 +96,28 @@ export default function ColaboradoresPage() {
 
   const filtered = useMemo(() => {
     const termo = search.trim().toLowerCase();
-    if (!termo) return colaboradores;
-    return colaboradores.filter((c) =>
-      [c.matricula, c.nome, c.supervisor, c.gc, c.go]
+    return colaboradores.filter((c) => {
+      if (fSupervisor.length && !fSupervisor.includes(c.supervisor ?? "")) return false;
+      if (fGc.length && !fGc.includes(c.gc ?? "")) return false;
+      if (fGo.length && !fGo.includes(c.go ?? "")) return false;
+      if (!termo) return true;
+      return [c.matricula, c.nome, c.supervisor, c.gc, c.go]
         .filter(Boolean)
-        .some((campo) => (campo as string).toLowerCase().includes(termo))
-    );
-  }, [colaboradores, search]);
+        .some((campo) => (campo as string).toLowerCase().includes(termo));
+    });
+  }, [colaboradores, search, fSupervisor, fGc, fGo]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const pageSafe = Math.min(page, totalPages);
   const visible = filtered.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
 
-  const handleSearch = (termo: string) => {
-    setSearch(termo);
+  const temFiltro = search !== "" || fSupervisor.length > 0 || fGc.length > 0 || fGo.length > 0;
+
+  const limparFiltros = () => {
+    setSearch("");
+    setFSupervisor([]);
+    setFGc([]);
+    setFGo([]);
     setPage(1);
   };
 
@@ -120,7 +132,7 @@ export default function ColaboradoresPage() {
         supervisor: newForm.supervisor.trim() || undefined,
         gc: newForm.gc.trim() || undefined,
         go: newForm.go.trim() || undefined,
-        ativo: newForm.ativo,
+        ativo: true,
       });
       setShowForm(false);
       setNewMatricula("");
@@ -145,7 +157,6 @@ export default function ColaboradoresPage() {
       supervisor: c.supervisor ?? "",
       gc: c.gc ?? "",
       go: c.go ?? "",
-      ativo: c.ativo,
     });
     setModalError(null);
     setVinculados(null);
@@ -166,7 +177,6 @@ export default function ColaboradoresPage() {
         supervisor: editForm.supervisor.trim() || undefined,
         gc: editForm.gc.trim() || undefined,
         go: editForm.go.trim() || undefined,
-        ativo: editForm.ativo,
       });
       closeEdit();
       loadColaboradores();
@@ -216,7 +226,7 @@ export default function ColaboradoresPage() {
           <h2 className="text-lg font-bold text-[#0f172a]">Gestão de Colaboradores</h2>
           <p className="text-xs text-[#64748b] mt-0.5">
             {colaboradores.length} colaboradores cadastrados
-            {search && ` · ${filtered.length} encontrados`}
+            {temFiltro && ` · ${filtered.length} encontrados`}
           </p>
         </div>
         <button
@@ -310,22 +320,53 @@ export default function ColaboradoresPage() {
         </form>
       )}
 
-      {/* Busca */}
-      <div className="relative">
-        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
-        <input
-          value={search}
-          onChange={(e) => handleSearch(e.target.value)}
-          placeholder="Buscar por matrícula, nome, supervisor, GC ou GO…"
-          className="w-full h-9 pl-9 pr-9 text-sm bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+      {/* Busca + filtros */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex-1 min-w-[240px]">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
+          <input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            placeholder="Buscar por matrícula, nome, supervisor, GC ou GO…"
+            className="w-full h-8 pl-9 pr-9 text-xs bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+          />
+          {search && (
+            <button
+              onClick={() => { setSearch(""); setPage(1); }}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9ca3af] hover:text-[#374151]"
+              title="Limpar busca"
+            >
+              <X size={13} />
+            </button>
+          )}
+        </div>
+
+        <MultiSelectSearch
+          label="Supervisor"
+          options={opcoes.supervisor}
+          selected={fSupervisor}
+          onChange={(v) => { setFSupervisor(v); setPage(1); }}
         />
-        {search && (
+        <MultiSelectSearch
+          label="GC"
+          options={opcoes.gc}
+          selected={fGc}
+          onChange={(v) => { setFGc(v); setPage(1); }}
+        />
+        <MultiSelectSearch
+          label="GO"
+          options={opcoes.go}
+          selected={fGo}
+          onChange={(v) => { setFGo(v); setPage(1); }}
+        />
+
+        {temFiltro && (
           <button
-            onClick={() => handleSearch("")}
-            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9ca3af] hover:text-[#374151]"
-            title="Limpar busca"
+            onClick={limparFiltros}
+            className="flex items-center gap-1 h-8 px-3 text-xs font-medium text-[#64748b] border border-[#e5e7eb] rounded-lg bg-white hover:bg-[#f9fafb] transition-colors"
           >
-            <X size={14} />
+            <X size={12} />
+            Limpar
           </button>
         )}
       </div>
@@ -349,7 +390,6 @@ export default function ColaboradoresPage() {
                   <th className="px-4 py-2 font-medium">Supervisor</th>
                   <th className="px-4 py-2 font-medium">GC</th>
                   <th className="px-4 py-2 font-medium">GO</th>
-                  <th className="px-4 py-2 font-medium">Status</th>
                   <th className="px-4 py-2 font-medium text-right">Ações</th>
                 </tr>
               </thead>
@@ -361,15 +401,6 @@ export default function ColaboradoresPage() {
                     <td className="px-4 py-2.5 text-[#64748b]">{c.supervisor ?? "—"}</td>
                     <td className="px-4 py-2.5 text-[#64748b]">{c.gc ?? "—"}</td>
                     <td className="px-4 py-2.5 text-[#64748b]">{c.go ?? "—"}</td>
-                    <td className="px-4 py-2.5">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                          c.ativo ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-600"
-                        }`}
-                      >
-                        {c.ativo ? "Ativo" : "Inativo"}
-                      </span>
-                    </td>
                     <td className="px-4 py-2.5 text-right">
                       <button
                         onClick={() => openEdit(c)}
@@ -397,17 +428,17 @@ export default function ColaboradoresPage() {
 
       {/* Sugestões compartilhadas pelos formulários */}
       <datalist id="sug-supervisor">
-        {sugestoes.supervisor.map((s) => (
+        {opcoes.supervisor.map((s) => (
           <option key={s} value={s} />
         ))}
       </datalist>
       <datalist id="sug-gc">
-        {sugestoes.gc.map((s) => (
+        {opcoes.gc.map((s) => (
           <option key={s} value={s} />
         ))}
       </datalist>
       <datalist id="sug-go">
-        {sugestoes.go.map((s) => (
+        {opcoes.go.map((s) => (
           <option key={s} value={s} />
         ))}
       </datalist>
@@ -450,7 +481,7 @@ export default function ColaboradoresPage() {
                   className={inputClass}
                 />
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-[#64748b] block mb-1">GC</label>
                   <input
@@ -469,18 +500,6 @@ export default function ColaboradoresPage() {
                     className={inputClass}
                   />
                 </div>
-                <div>
-                  <label className="text-xs text-[#64748b] block mb-1">Status</label>
-                  <button
-                    type="button"
-                    onClick={() => setEditForm((f) => ({ ...f, ativo: !f.ativo }))}
-                    className={`w-full h-9 rounded-lg text-xs font-semibold ${
-                      editForm.ativo ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-600"
-                    }`}
-                  >
-                    {editForm.ativo ? "Ativo" : "Inativo"}
-                  </button>
-                </div>
               </div>
 
               {vinculados !== null && vinculados > 0 && (
@@ -488,8 +507,8 @@ export default function ColaboradoresPage() {
                   <AlertTriangle size={13} className="shrink-0 mt-0.5" />
                   <span>
                     {vinculados} medidor{vinculados !== 1 ? "es" : ""} vinculado
-                    {vinculados !== 1 ? "s" : ""} a este colaborador. Ele não pode ser excluído — marque
-                    como inativo para tirá-lo de circulação sem perder o histórico.
+                    {vinculados !== 1 ? "s" : ""} a este colaborador. Ele não pode ser excluído sem
+                    apagar esse histórico.
                   </span>
                 </div>
               )}

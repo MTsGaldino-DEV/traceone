@@ -684,7 +684,7 @@ export async function importarPlanilhaPC(
   const BATCH = 500;
   for (let i = 0; i < itens.length; i += BATCH) {
     const lote = itens.slice(i, i + BATCH);
-    const { data, error } = await supabase.rpc('importar_planilha_pc', { p_itens: lote });
+    const { data, error } = await supabase.rpc('', { p_itens: lote });
     if (error) throw new Error(error.message);
     const r = data as ResultadoPC;
     total.servicos_criados += r?.servicos_criados ?? 0;
@@ -830,39 +830,57 @@ export interface MedidorConferencia45Dias {
   data: string;
 }
 
+/** Um medidor ocultado da conferência, com o rastro de quem ocultou. */
+export interface MedidorConferencia45DiasOculto extends MedidorConferencia45Dias {
+  ocultadoPor: string;
+  ocultadoEm: string;
+}
+
+/**
+ * Lista da conferência +45 dias, já sem os medidores ocultados — a exclusão
+ * acontece no banco para a paginação bater com o que aparece na tela.
+ */
 export async function getMedidoresConferencia45Dias(
   page = 1,
   pageSize = 100,
   diasAscending = false,
   diasLimite = 45
 ): Promise<{ data: MedidorConferencia45Dias[]; total: number }> {
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-
-  const { data, count, error } = await supabase
-    .from('vw_medidores_completo')
-    .select('id,"MATRICULA","COLABORADOR","SERVIÇO GDIS","Serial","DIAS DE ATRIBUIÇÃO","Data"', { count: 'exact' })
-    .eq('"Concluído/Pendente"', 'PENDENTE')
-    .gt('"DIAS DE ATRIBUIÇÃO"', diasLimite)
-    .order('"DIAS DE ATRIBUIÇÃO"', { ascending: diasAscending })
-    .range(from, to);
-
-  if (error) throw new Error(error.message);
-
-  const rows: MedidorConferencia45Dias[] = (data ?? []).map((row) => {
-    const r = row as Record<string, unknown>;
-    return {
-      id: r['id'] as string,
-      matricula: (r['MATRICULA'] as string) ?? '',
-      colaborador: (r['COLABORADOR'] as string) ?? '',
-      servicoGdis: (r['SERVIÇO GDIS'] as string | null) ?? null,
-      serial: (r['Serial'] as string) ?? '',
-      dias: typeof r['DIAS DE ATRIBUIÇÃO'] === 'number' ? (r['DIAS DE ATRIBUIÇÃO'] as number) : 0,
-      data: (r['Data'] as string) ?? '',
-    };
+  const { data, error } = await supabase.rpc('get_conferencia_45dias', {
+    p_page: page,
+    p_page_size: pageSize,
+    p_asc: diasAscending,
+    p_dias: diasLimite,
   });
+  if (error) throw new Error(error.message);
+  const r = data as { data: MedidorConferencia45Dias[]; total: number } | null;
+  return { data: r?.data ?? [], total: r?.total ?? 0 };
+}
 
-  return { data: rows, total: count ?? 0 };
+/** Os ocultados são compartilhados: todo mundo vê a mesma lista. */
+export async function getConferencia45DiasOcultos(
+  diasLimite = 45
+): Promise<MedidorConferencia45DiasOculto[]> {
+  const { data, error } = await supabase.rpc('get_conferencia_45dias_ocultos', {
+    p_dias: diasLimite,
+  });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as MedidorConferencia45DiasOculto[];
+}
+
+export async function ocultarMedidor45Dias(medidorId: string): Promise<void> {
+  const { error } = await supabase
+    .from('conferencia_45dias_ocultos')
+    .upsert({ medidor_id: medidorId }, { onConflict: 'medidor_id' });
+  if (error) throw new Error(error.message);
+}
+
+export async function reverterOcultarMedidor45Dias(medidorId: string): Promise<void> {
+  const { error } = await supabase
+    .from('conferencia_45dias_ocultos')
+    .delete()
+    .eq('medidor_id', medidorId);
+  if (error) throw new Error(error.message);
 }
 
 export async function vincularServicoGdisMedidor(id: string, servicoGdis: string | null): Promise<void> {

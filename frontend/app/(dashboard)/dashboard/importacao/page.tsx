@@ -226,17 +226,30 @@ function buildSyncReport(
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// SEÇÃO PLANILHA PC — tipos e lógica
+// SEÇÃO PLANILHAS DE VINCULAÇÃO (PC e TC) — tipos e lógica
+//
+// As duas planilhas dizem a mesma coisa — em qual serviço cada
+// equipamento foi mexido — e só diferem no nome da coluna do serial e
+// no texto de ajuda. A lógica e a tela são compartilhadas.
 // ═══════════════════════════════════════════════════════════════════
 
-const PC_ALIASES: Record<string, string> = {
+const ALIASES_COMUNS: Record<string, string> = {
   numserv: "servico", "num serv": "servico", "numero servico": "servico",
-  medidor_instalado: "serial", "medidor instalado": "serial",
   datafim: "data_fim", "data fim": "data_fim", data_fim: "data_fim",
   tipo_serv: "tipo_serv", "tipo serv": "tipo_serv", tiposerv: "tipo_serv",
 };
 
-/** Uma instalação declarada pela Planilha PC. */
+const PC_ALIASES: Record<string, string> = {
+  ...ALIASES_COMUNS,
+  medidor_instalado: "serial", "medidor instalado": "serial",
+};
+
+const TC_ALIASES: Record<string, string> = {
+  ...ALIASES_COMUNS,
+  serial: "serial",
+};
+
+/** Uma instalação declarada pela planilha. */
 interface LinhaPC {
   servico: string;
   serial: string;
@@ -267,7 +280,11 @@ interface ParsePCResult {
   erro?: string;
 }
 
-function parsePCWorkbook(buffer: ArrayBuffer): ParsePCResult {
+function parsePCWorkbook(
+  buffer: ArrayBuffer,
+  aliases: Record<string, string>,
+  colunaSerial: string
+): ParsePCResult {
   // codepage 1252: o CSV exportado vem em Latin-1, não UTF-8
   const wb = XLSX.read(buffer, { type: "array", codepage: 1252 });
   const ws = wb.Sheets[wb.SheetNames[0]];
@@ -280,7 +297,7 @@ function parsePCWorkbook(buffer: ArrayBuffer): ParsePCResult {
     if (!Array.isArray(row)) continue;
     const map: Record<string, number> = {};
     row.forEach((cell, idx) => {
-      const mapped = PC_ALIASES[normalizeHeader(String(cell ?? ""))];
+      const mapped = aliases[normalizeHeader(String(cell ?? ""))];
       if (mapped && !(mapped in map)) map[mapped] = idx;
     });
     if ("serial" in map && "servico" in map) {
@@ -293,7 +310,7 @@ function parsePCWorkbook(buffer: ArrayBuffer): ParsePCResult {
   if (headerIdx === -1) {
     return {
       linhas: [], totalLinhas: 0, semMedidor: 0, semData: 0,
-      erro: "Não encontrei as colunas 'NumServ' e 'Medidor_Instalado'. Confirme que é a Planilha PC.",
+      erro: `Não encontrei as colunas 'NumServ' e '${colunaSerial}'. Confirme que é a planilha certa.`,
     };
   }
   if (!("data_fim" in colMap)) {
@@ -959,12 +976,86 @@ function AtribuicoesTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// ABA PLANILHA PC
+// ABA DE VINCULAÇÃO (serve a Planilha PC e a Planilha TC)
 // ═══════════════════════════════════════════════════════════════════
 
 type PCStage = "idle" | "parsing" | "ready" | "importing" | "done" | "error";
 
-function PlanilhaPCTab() {
+/** O que muda entre uma planilha e outra. */
+interface FormatoVinculacao {
+  nome: string;
+  equipamento: string;                    // "medidor" | "TC"
+  equipamentoPlural: string;
+  aliases: Record<string, string>;
+  colunaSerial: string;                   // nome da coluna do serial na planilha
+  dica: string;                           // subtítulo da área de upload
+  comoFunciona: React.ReactNode[];
+  colunas: { letra: string; nome: string | null }[];
+  // Tailwind não aceita classe montada em runtime, então vêm inteiras.
+  cor: {
+    dropAtivo: string; dropHover: string;
+    iconeBg: string; iconeTexto: string; spinner: string;
+    ajudaBox: string; ajudaTitulo: string; ajudaTexto: string;
+  };
+}
+
+const CORES_PC = {
+  dropAtivo: "border-violet-500 bg-violet-50",
+  dropHover: "border-slate-300 bg-slate-50 hover:border-violet-400 hover:bg-violet-50/50",
+  iconeBg: "bg-violet-100", iconeTexto: "text-violet-600", spinner: "text-violet-500",
+  ajudaBox: "bg-violet-50 border-violet-200", ajudaTitulo: "text-violet-900", ajudaTexto: "text-violet-800",
+};
+
+const CORES_TC = {
+  dropAtivo: "border-teal-500 bg-teal-50",
+  dropHover: "border-slate-300 bg-slate-50 hover:border-teal-400 hover:bg-teal-50/50",
+  iconeBg: "bg-teal-100", iconeTexto: "text-teal-600", spinner: "text-teal-500",
+  ajudaBox: "bg-teal-50 border-teal-200", ajudaTitulo: "text-teal-900", ajudaTexto: "text-teal-800",
+};
+
+const FORMATO_PC: FormatoVinculacao = {
+  nome: "Planilha PC",
+  equipamento: "medidor",
+  equipamentoPlural: "medidores",
+  aliases: PC_ALIASES,
+  colunaSerial: "Medidor_Instalado",
+  dica: "Suporte: .xlsx, .xls, .csv · aceita arquivos grandes (70 mil+ linhas)",
+  cor: CORES_PC,
+  comoFunciona: [
+    "A Planilha PC mostra exatamente em qual serviço cada medidor foi instalado",
+    <>O sistema lê a coluna <strong>Medidor_Instalado</strong> e cruza com os seriais do nosso cadastro</>,
+    <>Onde encontra, vincula o <strong>NumServ</strong> como serviço e grava a <strong>DataFim</strong> como data de instalação, fechando o medidor como concluído</>,
+    "Se o serviço ainda não existir no sistema, ele é criado a partir da própria planilha — é ela que comprova que o serviço aconteceu",
+    <>Quando um serial aparece em vários serviços, vale a instalação de <strong>DataFim mais recente</strong> — é onde o medidor está atualmente</>,
+  ],
+  colunas: [
+    { letra: "A", nome: "NumServ" }, { letra: "B", nome: "tipo_serv" }, { letra: "…", nome: null },
+    { letra: "G", nome: "DataFim" }, { letra: "…", nome: null }, { letra: "I", nome: "Medidor_Instalado" },
+  ],
+};
+
+const FORMATO_TC: FormatoVinculacao = {
+  nome: "Planilha TC",
+  equipamento: "TC",
+  equipamentoPlural: "TCs",
+  aliases: TC_ALIASES,
+  colunaSerial: "serial",
+  dica: "Suporte: .xlsx, .xls, .csv",
+  cor: CORES_TC,
+  comoFunciona: [
+    "A Planilha TC mostra em qual serviço cada transformador de corrente foi utilizado",
+    <>O sistema lê a coluna <strong>serial</strong> e cruza com os seriais do nosso cadastro</>,
+    <>Onde encontra, vincula o <strong>NumServ</strong> como serviço e grava a <strong>DataFim</strong> como data, fechando o TC como concluído</>,
+    <>Entram as linhas de instalação e de remoção — a coluna <strong>cod_acao</strong> não filtra nada aqui</>,
+    "Como TC é trifásico, o mesmo serviço costuma cobrir 2 a 6 seriais — todos recebem o mesmo número de serviço",
+  ],
+  colunas: [
+    { letra: "A", nome: "NumServ" }, { letra: "B", nome: "tipo_serv" }, { letra: "…", nome: null },
+    { letra: "G", nome: "DataFim" }, { letra: "…", nome: null }, { letra: "I", nome: "serial" },
+  ],
+};
+
+function PlanilhaVinculacaoTab({ formato }: { formato: FormatoVinculacao }) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -988,7 +1079,7 @@ function PlanilhaPCTab() {
     let info: ParsePCResult;
     try {
       const buffer = await f.arrayBuffer();
-      info = parsePCWorkbook(buffer);
+      info = parsePCWorkbook(buffer, formato.aliases, formato.colunaSerial);
     } catch {
       setStage("error");
       setErrorMsg("Falha ao ler o arquivo. Verifique se é um Excel/CSV válido.");
@@ -1001,21 +1092,21 @@ function PlanilhaPCTab() {
       return;
     }
 
-    setProgress("Buscando medidores no banco de dados…");
+    setProgress("Buscando equipamentos no banco de dados…");
     let medidores: MedidorParaPC[];
     try {
       medidores = await getMedidoresParaPC();
     } catch (err) {
       setStage("error");
-      setErrorMsg(err instanceof Error ? err.message : "Erro ao buscar medidores.");
+      setErrorMsg(err instanceof Error ? err.message : "Erro ao buscar equipamentos.");
       return;
     }
 
-    setProgress("Cruzando os medidores instalados…");
+    setProgress("Cruzando os seriais…");
     setPlano(montarPlanoPC(info.linhas, medidores));
     setStage("ready");
     setProgress("");
-  }, []);
+  }, [formato]);
 
   const aAplicar = plano ? [...plano.novos, ...plano.atualizados] : [];
 
@@ -1064,7 +1155,8 @@ function PlanilhaPCTab() {
           <div className="flex-1">
             <p className="text-sm font-bold">Importação concluída!</p>
             <p className="text-xs text-emerald-600 mt-0.5">
-              {resultado.medidores_atualizados} medidor{resultado.medidores_atualizados !== 1 ? "es" : ""} vinculado
+              {resultado.medidores_atualizados}{" "}
+              {resultado.medidores_atualizados !== 1 ? formato.equipamentoPlural : formato.equipamento} vinculado
               {resultado.medidores_atualizados !== 1 ? "s" : ""} · {resultado.servicos_criados} serviço
               {resultado.servicos_criados !== 1 ? "s" : ""} criado{resultado.servicos_criados !== 1 ? "s" : ""} · {resultado.servicos_conferidos} conferido
               {resultado.servicos_conferidos !== 1 ? "s" : ""}
@@ -1083,26 +1175,24 @@ function PlanilhaPCTab() {
             onDragLeave={() => setDragging(false)}
             onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) processFile(f); }}
             onClick={() => fileInputRef.current?.click()}
-            className={`flex flex-col items-center justify-center gap-4 p-12 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${dragging ? "border-violet-500 bg-violet-50" : "border-slate-300 bg-slate-50 hover:border-violet-400 hover:bg-violet-50/50"}`}
+            className={`flex flex-col items-center justify-center gap-4 p-12 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${dragging ? formato.cor.dropAtivo : formato.cor.dropHover}`}
           >
-            <div className="w-14 h-14 rounded-2xl bg-violet-100 flex items-center justify-center">
-              <Link2 size={28} className="text-violet-600" />
+            <div className={`w-14 h-14 rounded-2xl ${formato.cor.iconeBg} flex items-center justify-center`}>
+              <Link2 size={28} className={formato.cor.iconeTexto} />
             </div>
             <div className="text-center">
-              <p className="text-sm font-bold text-slate-800">Arraste a Planilha PC aqui ou clique</p>
-              <p className="text-xs text-slate-500 mt-1">Suporte: .xlsx, .xls, .csv · aceita arquivos grandes (70 mil+ linhas)</p>
+              <p className="text-sm font-bold text-slate-800">Arraste a {formato.nome} aqui ou clique</p>
+              <p className="text-xs text-slate-500 mt-1">{formato.dica}</p>
             </div>
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }} />
           </div>
 
-          <div className="p-4 bg-violet-50 border border-violet-200 rounded-xl">
-            <p className="text-xs font-semibold text-violet-900 mb-2">Como funciona?</p>
-            <ul className="text-xs text-violet-800 space-y-1">
-              <li>• A Planilha PC mostra exatamente em qual serviço cada medidor foi instalado</li>
-              <li>• O sistema lê a coluna <strong>Medidor_Instalado</strong> e cruza com os seriais do nosso cadastro</li>
-              <li>• Onde encontra, vincula o <strong>NumServ</strong> como serviço e grava a <strong>DataFim</strong> como data de instalação, fechando o medidor como concluído</li>
-              <li>• Se o serviço ainda não existir no sistema, ele é criado a partir da própria planilha — é ela que comprova que o serviço aconteceu</li>
-              <li>• Quando um serial aparece em vários serviços, vale a instalação de <strong>DataFim mais recente</strong> — é onde o medidor está atualmente</li>
+          <div className={`p-4 border rounded-xl ${formato.cor.ajudaBox}`}>
+            <p className={`text-xs font-semibold mb-2 ${formato.cor.ajudaTitulo}`}>Como funciona?</p>
+            <ul className={`text-xs space-y-1 ${formato.cor.ajudaTexto}`}>
+              {formato.comoFunciona.map((item, i) => (
+                <li key={i}>• {item}</li>
+              ))}
             </ul>
           </div>
 
@@ -1112,19 +1202,21 @@ function PlanilhaPCTab() {
               <table className="w-full text-xs">
                 <thead>
                   <tr className="bg-slate-100">
-                    {["A", "B", "…", "G", "…", "I"].map((h) => (
-                      <th key={h} className="px-2 py-1.5 text-center font-bold text-slate-500 border-r border-slate-200 last:border-r-0">{h}</th>
+                    {formato.colunas.map((c, i) => (
+                      <th key={i} className="px-2 py-1.5 text-center font-bold text-slate-500 border-r border-slate-200 last:border-r-0">{c.letra}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <td className="px-2 py-1.5 text-center text-slate-700 border-r border-slate-200 font-medium">NumServ</td>
-                    <td className="px-2 py-1.5 text-center text-slate-700 border-r border-slate-200 font-medium">tipo_serv</td>
-                    <td className="px-2 py-1.5 text-center text-slate-400 border-r border-slate-200">—</td>
-                    <td className="px-2 py-1.5 text-center text-slate-700 border-r border-slate-200 font-medium">DataFim</td>
-                    <td className="px-2 py-1.5 text-center text-slate-400 border-r border-slate-200">—</td>
-                    <td className="px-2 py-1.5 text-center text-slate-700 font-medium">Medidor_Instalado</td>
+                    {formato.colunas.map((c, i) => (
+                      <td
+                        key={i}
+                        className={`px-2 py-1.5 text-center border-r border-slate-200 last:border-r-0 ${c.nome ? "text-slate-700 font-medium" : "text-slate-400"}`}
+                      >
+                        {c.nome ?? "—"}
+                      </td>
+                    ))}
                   </tr>
                 </tbody>
               </table>
@@ -1136,7 +1228,7 @@ function PlanilhaPCTab() {
 
       {(stage === "parsing" || stage === "importing") && (
         <div className="flex flex-col items-center justify-center gap-3 p-12 bg-slate-50 border border-slate-200 rounded-2xl">
-          <Loader2 size={32} className="animate-spin text-violet-500" />
+          <Loader2 size={32} className={`animate-spin ${formato.cor.spinner}`} />
           <p className="text-sm font-semibold text-slate-600">{progress || "Processando…"}</p>
         </div>
       )}
@@ -1144,13 +1236,13 @@ function PlanilhaPCTab() {
       {(stage === "ready" || stage === "done") && file && plano && parseInfo && (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
           <div className="flex items-center gap-3 p-4 border-b border-slate-100 bg-slate-50/50">
-            <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
-              <FileText size={18} className="text-violet-600" />
+            <div className={`w-10 h-10 rounded-xl ${formato.cor.iconeBg} flex items-center justify-center shrink-0`}>
+              <FileText size={18} className={formato.cor.iconeTexto} />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-slate-900 truncate">{file.name}</p>
               <p className="text-xs text-slate-500">
-                {(file.size / 1024 / 1024).toFixed(1)} MB · {parseInfo.linhas.length.toLocaleString("pt-BR")} instalações lidas
+                {(file.size / 1024).toFixed(0)} KB · {parseInfo.linhas.length.toLocaleString("pt-BR")} linhas lidas
               </p>
             </div>
             {stage === "ready" && (
@@ -1178,7 +1270,7 @@ function PlanilhaPCTab() {
             </div>
 
             <CollapsibleList
-              title="Novas vinculações — medidores pendentes que serão concluídos"
+              title={`Novas vinculações — ${formato.equipamentoPlural} pendentes que serão concluídos`}
               count={plano.novos.length}
               color="bg-emerald-50 border-emerald-200 text-emerald-800"
               items={plano.novos}
@@ -1193,16 +1285,16 @@ function PlanilhaPCTab() {
               <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
                 <AlertTriangle size={13} className="shrink-0 mt-0.5 text-slate-400" />
                 <span className="text-xs text-slate-600">
-                  Em {plano.anterioresAtribuicao.toLocaleString("pt-BR")} medidores a instalação mais recente
-                  é anterior à data em que ele foi atribuído. Eles estão incluídos — a planilha é a fonte de
-                  onde o medidor está hoje —, mas a divergência de datas pode indicar cadastro desatualizado.
+                  Em {plano.anterioresAtribuicao.toLocaleString("pt-BR")} {formato.equipamentoPlural} a data
+                  mais recente da planilha é anterior à data em que o equipamento foi atribuído. Eles estão
+                  incluídos — a planilha é a fonte —, mas a divergência pode indicar cadastro desatualizado.
                 </span>
               </div>
             )}
 
             <div className="text-xs text-slate-500 space-y-0.5 px-1">
-              <p>{parseInfo.linhas.length.toLocaleString("pt-BR")} instalações na planilha · {plano.foraDoCadastro.toLocaleString("pt-BR")} seriais não são do nosso cadastro (ignorados)</p>
-              {parseInfo.semMedidor > 0 && <p>{parseInfo.semMedidor.toLocaleString("pt-BR")} linhas sem Medidor_Instalado preenchido</p>}
+              <p>{parseInfo.linhas.length.toLocaleString("pt-BR")} linhas na planilha · {plano.foraDoCadastro.toLocaleString("pt-BR")} seriais não são do nosso cadastro (ignorados)</p>
+              {parseInfo.semMedidor > 0 && <p>{parseInfo.semMedidor.toLocaleString("pt-BR")} linhas sem {formato.colunaSerial} preenchido</p>}
               {parseInfo.semData > 0 && <p>{parseInfo.semData.toLocaleString("pt-BR")} linhas com DataFim inválida</p>}
             </div>
 
@@ -1224,7 +1316,8 @@ function PlanilhaPCTab() {
                   className="flex-1 px-4 py-2.5 bg-[#1e3a5f] text-white font-bold text-sm rounded-xl hover:bg-[#2d5282] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
                 >
                   <Link2 size={16} />
-                  Vincular {aAplicar.length.toLocaleString("pt-BR")} medidor{aAplicar.length !== 1 ? "es" : ""}
+                  Vincular {aAplicar.length.toLocaleString("pt-BR")}{" "}
+                  {aAplicar.length !== 1 ? formato.equipamentoPlural : formato.equipamento}
                 </button>
               </div>
             )}
@@ -1239,7 +1332,7 @@ function PlanilhaPCTab() {
 // PÁGINA PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
 
-type Tab = "gdis" | "atribuicoes" | "pc";
+type Tab = "gdis" | "atribuicoes" | "pc" | "tc";
 
 export default function ImportacaoPage() {
   const [activeTab, setActiveTab] = useState<Tab>("gdis");
@@ -1249,20 +1342,21 @@ export default function ImportacaoPage() {
       {/* Header */}
       <div>
         <h2 className="text-xl font-bold text-[#0f172a]">Importar</h2>
-        <p className="text-sm text-[#64748b] mt-0.5">Importe relatórios GDIS, sincronize a planilha de atribuições SAP ou vincule serviços pela Planilha PC.</p>
+        <p className="text-sm text-[#64748b] mt-0.5">Importe relatórios GDIS, sincronize a planilha de atribuições SAP ou vincule serviços pelas planilhas PC e TC.</p>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
         {([
           ["gdis", "Relatório GDIS"],
-          ["atribuicoes", "Planilha de Atribuições"],
+          ["atribuicoes", "Atribuições"],
           ["pc", "Planilha PC"],
+          ["tc", "Planilha TC"],
         ] as [Tab, string][]).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
-            className={`flex-1 px-4 py-2 text-sm font-semibold rounded-lg transition-all ${
+            className={`flex-1 px-3 py-2 text-sm font-semibold rounded-lg transition-all ${
               activeTab === key
                 ? "bg-white text-[#1e3a5f] shadow-sm"
                 : "text-slate-500 hover:text-slate-700"
@@ -1274,7 +1368,15 @@ export default function ImportacaoPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === "gdis" ? <GdisTab /> : activeTab === "atribuicoes" ? <AtribuicoesTab /> : <PlanilhaPCTab />}
+      {activeTab === "gdis" ? (
+        <GdisTab />
+      ) : activeTab === "atribuicoes" ? (
+        <AtribuicoesTab />
+      ) : activeTab === "pc" ? (
+        <PlanilhaVinculacaoTab formato={FORMATO_PC} />
+      ) : (
+        <PlanilhaVinculacaoTab formato={FORMATO_TC} />
+      )}
     </div>
   );
 }

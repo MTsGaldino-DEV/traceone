@@ -340,7 +340,21 @@ function GdisTab() {
           </div>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }} />
         </div>
-      ) : (
+      ) : null}
+
+      {!file && (
+        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
+          <p className="text-xs font-semibold text-blue-900 mb-2">Como funciona?</p>
+          <ul className="text-xs text-blue-800 space-y-1">
+            <li>• Carregue o relatório exportado do GDIS (Excel ou CSV)</li>
+            <li>• O sistema encontra automaticamente a linha de cabeçalho e reconhece colunas como "Serviço", "Matrícula", "Término", "Cód. Serv." e "Tipo Serv." (mesmo com nomes ligeiramente diferentes)</li>
+            <li>• Cada linha vira um serviço importado, usado depois na conferência de medidores</li>
+            <li>• Linhas sem número de serviço ou com data de término inválida são ignoradas e listadas como aviso</li>
+          </ul>
+        </div>
+      )}
+
+      {file && (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
           <div className="flex items-center gap-3 p-4 border-b border-slate-100 bg-slate-50/50">
             <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
@@ -599,6 +613,34 @@ function AtribuicoesTab() {
             <li>• Identifica: mudanças de atribuição, material ou datas</li>
             <li>• Exclui medidores sem recebedor (devolvidos)</li>
           </ul>
+        </div>
+      )}
+
+      {/* Colunas necessárias */}
+      {stage === "idle" && (
+        <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+          <p className="text-xs font-semibold text-slate-700 mb-2">Colunas que a planilha deve ter (nesta ordem, colunas A–L)</p>
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-slate-100">
+                  {["B", "C", "…", "K", "L"].map((h) => (
+                    <th key={h} className="px-2 py-1.5 text-center font-bold text-slate-500 border-r border-slate-200 last:border-r-0">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className="px-2 py-1.5 text-center text-slate-700 border-r border-slate-200 font-medium">Material (SAP)</td>
+                  <td className="px-2 py-1.5 text-center text-slate-700 border-r border-slate-200 font-medium">Nº de série do medidor</td>
+                  <td className="px-2 py-1.5 text-center text-slate-400 border-r border-slate-200">—</td>
+                  <td className="px-2 py-1.5 text-center text-slate-700 border-r border-slate-200 font-medium">Matrícula do recebedor</td>
+                  <td className="px-2 py-1.5 text-center text-slate-700 font-medium">Data de atribuição</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="text-xs text-slate-400 mt-1.5">As demais colunas (A, D–J) podem conter outros dados do SAP — não são usadas.</p>
         </div>
       )}
 

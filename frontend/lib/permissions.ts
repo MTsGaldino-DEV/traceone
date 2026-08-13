@@ -7,6 +7,11 @@ export function canManageUsers(role?: Role | null): boolean {
   return !!role && MANAGER_ROLES.includes(role);
 }
 
+/** Cadastro de colaboradores: supervisor pra cima na hierarquia. */
+export function canManageColaboradores(role?: Role | null): boolean {
+  return !!role && MANAGER_ROLES.includes(role);
+}
+
 export function canWrite(role?: Role | null): boolean {
   return !!role && WRITE_ROLES.includes(role);
 }

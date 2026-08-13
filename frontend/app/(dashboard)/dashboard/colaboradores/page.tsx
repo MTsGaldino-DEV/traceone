@@ -1,0 +1,535 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import {
+  UserPlus,
+  Trash2,
+  Pencil,
+  Loader2,
+  ShieldAlert,
+  X,
+  Search,
+  AlertTriangle,
+} from "lucide-react";
+import {
+  getProfile,
+  getColaboradores,
+  createColaborador,
+  updateColaborador,
+  deleteColaborador,
+  countMedidoresDoColaborador,
+} from "../../../../lib/api";
+import type { Colaborador, Profile } from "../../../../lib/supabase";
+import { canManageColaboradores } from "../../../../lib/permissions";
+import { Pagination } from "../../../../components/Pagination";
+
+const PAGE_SIZE = 25;
+
+/** Campos editáveis de um colaborador (matrícula é PK e não muda). */
+interface ColabForm {
+  nome: string;
+  supervisor: string;
+  gc: string;
+  go: string;
+  ativo: boolean;
+}
+
+const emptyForm: ColabForm = { nome: "", supervisor: "", gc: "", go: "", ativo: true };
+
+const inputClass =
+  "w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400";
+
+export default function ColaboradoresPage() {
+  const router = useRouter();
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+
+  // Cadastro
+  const [showForm, setShowForm] = useState(false);
+  const [newMatricula, setNewMatricula] = useState("");
+  const [newForm, setNewForm] = useState<ColabForm>(emptyForm);
+  const [creating, setCreating] = useState(false);
+
+  // Edição
+  const [editTarget, setEditTarget] = useState<Colaborador | null>(null);
+  const [editForm, setEditForm] = useState<ColabForm>(emptyForm);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [vinculados, setVinculados] = useState<number | null>(null);
+  const [modalError, setModalError] = useState<string | null>(null);
+
+  const loadColaboradores = () => {
+    setLoading(true);
+    getColaboradores()
+      .then(setColaboradores)
+      .catch((e: unknown) => setError(e instanceof Error ? e.message : "Erro ao carregar colaboradores."))
+      .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    getProfile().then((p) => {
+      setProfile(p);
+      if (!canManageColaboradores(p?.role)) {
+        router.replace("/dashboard");
+        return;
+      }
+      loadColaboradores();
+    });
+  }, [router]);
+
+  // Sugestões pros campos de hierarquia, a partir do que já existe no cadastro
+  const sugestoes = useMemo(() => {
+    const pick = (key: "supervisor" | "gc" | "go") =>
+      [...new Set(colaboradores.map((c) => c[key]).filter(Boolean) as string[])].sort();
+    return { supervisor: pick("supervisor"), gc: pick("gc"), go: pick("go") };
+  }, [colaboradores]);
+
+  const filtered = useMemo(() => {
+    const termo = search.trim().toLowerCase();
+    if (!termo) return colaboradores;
+    return colaboradores.filter((c) =>
+      [c.matricula, c.nome, c.supervisor, c.gc, c.go]
+        .filter(Boolean)
+        .some((campo) => (campo as string).toLowerCase().includes(termo))
+    );
+  }, [colaboradores, search]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const pageSafe = Math.min(page, totalPages);
+  const visible = filtered.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
+
+  const handleSearch = (termo: string) => {
+    setSearch(termo);
+    setPage(1);
+  };
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setCreating(true);
+    try {
+      await createColaborador({
+        matricula: newMatricula.trim().toLowerCase(),
+        nome: newForm.nome.trim(),
+        supervisor: newForm.supervisor.trim() || undefined,
+        gc: newForm.gc.trim() || undefined,
+        go: newForm.go.trim() || undefined,
+        ativo: newForm.ativo,
+      });
+      setShowForm(false);
+      setNewMatricula("");
+      setNewForm(emptyForm);
+      loadColaboradores();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Erro ao cadastrar colaborador.";
+      setError(
+        msg.includes("duplicate key")
+          ? `Já existe um colaborador com a matrícula "${newMatricula.trim().toLowerCase()}".`
+          : msg
+      );
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openEdit = (c: Colaborador) => {
+    setEditTarget(c);
+    setEditForm({
+      nome: c.nome,
+      supervisor: c.supervisor ?? "",
+      gc: c.gc ?? "",
+      go: c.go ?? "",
+      ativo: c.ativo,
+    });
+    setModalError(null);
+    setVinculados(null);
+    countMedidoresDoColaborador(c.matricula)
+      .then(setVinculados)
+      .catch(() => setVinculados(null));
+  };
+
+  const closeEdit = () => setEditTarget(null);
+
+  const handleSaveEdit = async () => {
+    if (!editTarget) return;
+    setModalError(null);
+    setSaving(true);
+    try {
+      await updateColaborador(editTarget.matricula, {
+        nome: editForm.nome.trim(),
+        supervisor: editForm.supervisor.trim() || undefined,
+        gc: editForm.gc.trim() || undefined,
+        go: editForm.go.trim() || undefined,
+        ativo: editForm.ativo,
+      });
+      closeEdit();
+      loadColaboradores();
+    } catch (err: unknown) {
+      setModalError(err instanceof Error ? err.message : "Erro ao salvar colaborador.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!editTarget) return;
+    if (
+      !confirm(
+        `Excluir o colaborador "${editTarget.nome}" (${editTarget.matricula})? Esta ação não pode ser desfeita.`
+      )
+    )
+      return;
+    setModalError(null);
+    setDeleting(true);
+    try {
+      await deleteColaborador(editTarget.matricula);
+      closeEdit();
+      loadColaboradores();
+    } catch (err: unknown) {
+      setModalError(err instanceof Error ? err.message : "Erro ao excluir colaborador.");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  if (!profile || !canManageColaboradores(profile.role)) {
+    return (
+      <div className="p-5 flex items-center gap-2 text-sm text-[#64748b]">
+        <ShieldAlert size={16} />
+        Sem permissão para acessar esta página.
+      </div>
+    );
+  }
+
+  const podeExcluir = vinculados === 0;
+
+  return (
+    <div className="p-5 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-bold text-[#0f172a]">Gestão de Colaboradores</h2>
+          <p className="text-xs text-[#64748b] mt-0.5">
+            {colaboradores.length} colaboradores cadastrados
+            {search && ` · ${filtered.length} encontrados`}
+          </p>
+        </div>
+        <button
+          onClick={() => setShowForm((s) => !s)}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+        >
+          <UserPlus size={13} />
+          Novo Colaborador
+        </button>
+      </div>
+
+      {error && (
+        <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+          {error}
+        </div>
+      )}
+
+      {showForm && (
+        <form onSubmit={handleCreate} className="bg-white border border-[#e5e7eb] rounded-xl p-4 space-y-3">
+          <p className="text-xs text-[#64748b]">
+            A matrícula é o identificador único do colaborador e não pode ser alterada depois. Ela é
+            gravada sempre em minúsculo.
+          </p>
+          <div className="grid grid-cols-5 gap-3">
+            <div>
+              <label className="text-xs text-[#64748b] block mb-1">Matrícula</label>
+              <input
+                required
+                value={newMatricula}
+                onChange={(e) => setNewMatricula(e.target.value)}
+                placeholder="e268779"
+                className={`${inputClass} font-mono`}
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="text-xs text-[#64748b] block mb-1">Nome</label>
+              <input
+                required
+                value={newForm.nome}
+                onChange={(e) => setNewForm((f) => ({ ...f, nome: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+            <div>
+              <label className="text-xs text-[#64748b] block mb-1">Supervisor</label>
+              <input
+                list="sug-supervisor"
+                value={newForm.supervisor}
+                onChange={(e) => setNewForm((f) => ({ ...f, supervisor: e.target.value }))}
+                className={inputClass}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-[#64748b] block mb-1">GC</label>
+                <input
+                  list="sug-gc"
+                  value={newForm.gc}
+                  onChange={(e) => setNewForm((f) => ({ ...f, gc: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[#64748b] block mb-1">GO</label>
+                <input
+                  list="sug-go"
+                  value={newForm.go}
+                  onChange={(e) => setNewForm((f) => ({ ...f, go: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="px-4 py-2 text-xs font-medium text-[#64748b] border border-[#e5e7eb] rounded-lg hover:bg-[#f9fafb] transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={creating}
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              <UserPlus size={13} />
+              {creating ? "Cadastrando..." : "Cadastrar"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Busca */}
+      <div className="relative">
+        <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
+        <input
+          value={search}
+          onChange={(e) => handleSearch(e.target.value)}
+          placeholder="Buscar por matrícula, nome, supervisor, GC ou GO…"
+          className="w-full h-9 pl-9 pr-9 text-sm bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+        />
+        {search && (
+          <button
+            onClick={() => handleSearch("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9ca3af] hover:text-[#374151]"
+            title="Limpar busca"
+          >
+            <X size={14} />
+          </button>
+        )}
+      </div>
+
+      <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
+        {loading ? (
+          <div className="p-6 flex justify-center">
+            <Loader2 size={18} className="animate-spin text-[#94a3b8]" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="p-6 text-center text-sm text-[#64748b]">
+            Nenhum colaborador encontrado.
+          </div>
+        ) : (
+          <>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#f1f5f9] text-left text-[10px] uppercase tracking-wide text-[#94a3b8]">
+                  <th className="px-4 py-2 font-medium">Matrícula</th>
+                  <th className="px-4 py-2 font-medium">Nome</th>
+                  <th className="px-4 py-2 font-medium">Supervisor</th>
+                  <th className="px-4 py-2 font-medium">GC</th>
+                  <th className="px-4 py-2 font-medium">GO</th>
+                  <th className="px-4 py-2 font-medium">Status</th>
+                  <th className="px-4 py-2 font-medium text-right">Ações</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visible.map((c) => (
+                  <tr key={c.matricula} className="border-b border-[#f1f5f9] last:border-0">
+                    <td className="px-4 py-2.5 font-mono text-xs text-[#64748b]">{c.matricula}</td>
+                    <td className="px-4 py-2.5 font-medium text-[#0f172a]">{c.nome}</td>
+                    <td className="px-4 py-2.5 text-[#64748b]">{c.supervisor ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-[#64748b]">{c.gc ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-[#64748b]">{c.go ?? "—"}</td>
+                    <td className="px-4 py-2.5">
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                          c.ativo ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-600"
+                        }`}
+                      >
+                        {c.ativo ? "Ativo" : "Inativo"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      <button
+                        onClick={() => openEdit(c)}
+                        className="p-1 text-[#9ca3af] hover:text-blue-600 transition-colors rounded"
+                        title="Editar colaborador"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <Pagination
+              page={pageSafe}
+              totalPages={totalPages}
+              totalItems={filtered.length}
+              pageSize={PAGE_SIZE}
+              onPageChange={setPage}
+              label="colaboradores"
+            />
+          </>
+        )}
+      </div>
+
+      {/* Sugestões compartilhadas pelos formulários */}
+      <datalist id="sug-supervisor">
+        {sugestoes.supervisor.map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+      <datalist id="sug-gc">
+        {sugestoes.gc.map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+      <datalist id="sug-go">
+        {sugestoes.go.map((s) => (
+          <option key={s} value={s} />
+        ))}
+      </datalist>
+
+      {/* Modal de edição */}
+      {editTarget && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-between p-5 border-b border-[#f1f5f9]">
+              <div>
+                <h3 className="text-sm font-bold text-[#0f172a]">Editar Colaborador</h3>
+                <p className="text-xs text-[#94a3b8] font-mono mt-0.5">{editTarget.matricula}</p>
+              </div>
+              <button onClick={closeEdit} className="text-[#9ca3af] hover:text-[#374151]">
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-3">
+              {modalError && (
+                <div className="text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                  {modalError}
+                </div>
+              )}
+
+              <div>
+                <label className="text-xs text-[#64748b] block mb-1">Nome</label>
+                <input
+                  value={editForm.nome}
+                  onChange={(e) => setEditForm((f) => ({ ...f, nome: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[#64748b] block mb-1">Supervisor</label>
+                <input
+                  list="sug-supervisor"
+                  value={editForm.supervisor}
+                  onChange={(e) => setEditForm((f) => ({ ...f, supervisor: e.target.value }))}
+                  className={inputClass}
+                />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs text-[#64748b] block mb-1">GC</label>
+                  <input
+                    list="sug-gc"
+                    value={editForm.gc}
+                    onChange={(e) => setEditForm((f) => ({ ...f, gc: e.target.value }))}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-[#64748b] block mb-1">GO</label>
+                  <input
+                    list="sug-go"
+                    value={editForm.go}
+                    onChange={(e) => setEditForm((f) => ({ ...f, go: e.target.value }))}
+                    className={inputClass}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-[#64748b] block mb-1">Status</label>
+                  <button
+                    type="button"
+                    onClick={() => setEditForm((f) => ({ ...f, ativo: !f.ativo }))}
+                    className={`w-full h-9 rounded-lg text-xs font-semibold ${
+                      editForm.ativo ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-600"
+                    }`}
+                  >
+                    {editForm.ativo ? "Ativo" : "Inativo"}
+                  </button>
+                </div>
+              </div>
+
+              {vinculados !== null && vinculados > 0 && (
+                <div className="flex items-start gap-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  <AlertTriangle size={13} className="shrink-0 mt-0.5" />
+                  <span>
+                    {vinculados} medidor{vinculados !== 1 ? "es" : ""} vinculado
+                    {vinculados !== 1 ? "s" : ""} a este colaborador. Ele não pode ser excluído — marque
+                    como inativo para tirá-lo de circulação sem perder o histórico.
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-2 p-5 border-t border-[#f1f5f9]">
+              <button
+                onClick={handleDelete}
+                disabled={deleting || vinculados === null || !podeExcluir}
+                title={
+                  vinculados === null
+                    ? "Verificando vínculos…"
+                    : !podeExcluir
+                      ? "Possui medidores vinculados"
+                      : ""
+                }
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 size={13} />
+                {deleting ? "Excluindo..." : "Excluir"}
+              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={closeEdit}
+                  className="px-4 py-2 text-xs font-medium text-[#64748b] border border-[#e5e7eb] rounded-lg hover:bg-[#f9fafb] transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={saving}
+                  className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                >
+                  {saving ? "Salvando..." : "Salvar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

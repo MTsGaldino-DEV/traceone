@@ -10,6 +10,7 @@ import {
   CheckSquare,
   AlarmClockCheck,
   Users,
+  Contact,
   LogOut,
   ChevronRight,
   KeyRound,
@@ -28,7 +29,11 @@ const navItems = [
   { label: "Conferência +45 dias", href: "/dashboard/conferencia-45dias", icon: AlarmClockCheck, despachante: false },
 ];
 
-const usuariosNavItem = { label: "Gestão de Usuários", href: "/dashboard/usuarios", icon: Users };
+// Visíveis apenas de supervisor pra cima na hierarquia
+const gestaoNavItems = [
+  { label: "Gestão de Colaboradores", href: "/dashboard/colaboradores", icon: Contact },
+  { label: "Gestão de Usuários", href: "/dashboard/usuarios", icon: Users },
+];
 
 export default function DashboardLayout({
   children,
@@ -70,7 +75,7 @@ export default function DashboardLayout({
 
   const isDespachante = profile?.role === "DESPACHANTE";
   const visibleNavItems = isDespachante ? navItems.filter((n) => n.despachante) : navItems;
-  const allNavItems = canManageUsers(profile?.role) ? [...visibleNavItems, usuariosNavItem] : visibleNavItems;
+  const allNavItems = canManageUsers(profile?.role) ? [...visibleNavItems, ...gestaoNavItems] : visibleNavItems;
 
   useEffect(() => {
     if (!profile) return;

@@ -17,10 +17,18 @@ import {
   GitCompare,
   ChevronDown,
   ChevronRight,
+  Link2,
 } from "lucide-react";
 import * as XLSX from "xlsx";
-import { importServicos, getMedidoresParaSync, syncAtribuicoes, getColaboradores } from "../../../../lib/api";
-import type { MedidorParaSync } from "../../../../lib/api";
+import {
+  importServicos,
+  getMedidoresParaSync,
+  syncAtribuicoes,
+  getColaboradores,
+  getMedidoresParaPC,
+  importarPlanilhaPC,
+} from "../../../../lib/api";
+import type { MedidorParaSync, MedidorParaPC, ResultadoPC } from "../../../../lib/api";
 import type { Colaborador } from "../../../../lib/supabase";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -218,6 +226,218 @@ function buildSyncReport(
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// SEÇÃO PLANILHA PC — tipos e lógica
+// ═══════════════════════════════════════════════════════════════════
+
+const PC_ALIASES: Record<string, string> = {
+  numserv: "servico", "num serv": "servico", "numero servico": "servico",
+  medidor_instalado: "serial", "medidor instalado": "serial",
+  datafim: "data_fim", "data fim": "data_fim", data_fim: "data_fim",
+  tipo_serv: "tipo_serv", "tipo serv": "tipo_serv", tiposerv: "tipo_serv",
+};
+
+/** Uma instalação declarada pela Planilha PC. */
+interface LinhaPC {
+  servico: string;
+  serial: string;
+  dataFim: string;   // YYYY-MM-DD
+  tipoServ: string;
+}
+
+/** Converte DD/MM/AAAA [HH:MM] ou serial de data do Excel em YYYY-MM-DD. */
+function parseDataPC(raw: unknown): string | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  if (typeof raw === "number") {
+    const d = new Date(Math.round((raw - 25569) * 864e5));
+    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  }
+  const str = String(raw).trim();
+  const dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+  const ymd = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (ymd) return str.slice(0, 10);
+  return null;
+}
+
+interface ParsePCResult {
+  linhas: LinhaPC[];
+  totalLinhas: number;
+  semMedidor: number;
+  semData: number;
+  erro?: string;
+}
+
+function parsePCWorkbook(buffer: ArrayBuffer): ParsePCResult {
+  // codepage 1252: o CSV exportado vem em Latin-1, não UTF-8
+  const wb = XLSX.read(buffer, { type: "array", codepage: 1252 });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as unknown[][];
+
+  let headerIdx = -1;
+  let colMap: Record<string, number> = {};
+  for (let i = 0; i < Math.min(data.length, 30); i++) {
+    const row = data[i];
+    if (!Array.isArray(row)) continue;
+    const map: Record<string, number> = {};
+    row.forEach((cell, idx) => {
+      const mapped = PC_ALIASES[normalizeHeader(String(cell ?? ""))];
+      if (mapped && !(mapped in map)) map[mapped] = idx;
+    });
+    if ("serial" in map && "servico" in map) {
+      headerIdx = i;
+      colMap = map;
+      break;
+    }
+  }
+
+  if (headerIdx === -1) {
+    return {
+      linhas: [], totalLinhas: 0, semMedidor: 0, semData: 0,
+      erro: "Não encontrei as colunas 'NumServ' e 'Medidor_Instalado'. Confirme que é a Planilha PC.",
+    };
+  }
+  if (!("data_fim" in colMap)) {
+    return {
+      linhas: [], totalLinhas: 0, semMedidor: 0, semData: 0,
+      erro: "Coluna 'DataFim' não encontrada na planilha.",
+    };
+  }
+
+  const linhas: LinhaPC[] = [];
+  let totalLinhas = 0;
+  let semMedidor = 0;
+  let semData = 0;
+
+  for (let i = headerIdx + 1; i < data.length; i++) {
+    const row = data[i] as unknown[];
+    if (!Array.isArray(row) || row.length === 0) continue;
+    totalLinhas++;
+
+    const serial = String(row[colMap["serial"]] ?? "").trim().toUpperCase();
+    if (!serial) { semMedidor++; continue; }
+
+    const servico = String(row[colMap["servico"]] ?? "").trim();
+    if (!servico) continue;
+
+    const dataFim = parseDataPC(row[colMap["data_fim"]]);
+    if (!dataFim) { semData++; continue; }
+
+    const tipoServ = colMap["tipo_serv"] !== undefined
+      ? String(row[colMap["tipo_serv"]] ?? "").trim()
+      : "";
+
+    linhas.push({ servico, serial, dataFim, tipoServ });
+  }
+
+  return { linhas, totalLinhas, semMedidor, semData };
+}
+
+interface ItemPlano {
+  medidor_id: string;
+  serial: string;
+  servico: string;
+  dataFim: string;
+  tipoServ: string;
+  matricula: string;
+  detail: string;
+}
+
+interface PlanoPC {
+  novos: ItemPlano[];         // medidor pendente → vira concluído
+  atualizados: ItemPlano[];   // já concluído, mas serviço/data mudam
+  inalterados: number;        // já bate com a planilha
+  suspeitos: ItemPlano[];     // instalação anterior à data de atribuição
+  foraDoCadastro: number;     // seriais da planilha que não são nossos
+}
+
+/**
+ * Cruza a planilha com o banco. Cada registro de medidor escolhe, entre as
+ * instalações do seu serial, a primeira com DataFim >= sua data de atribuição —
+ * assim um serial reaproveitado casa cada atribuição com a instalação certa.
+ */
+function montarPlanoPC(linhas: LinhaPC[], medidores: MedidorParaPC[]): PlanoPC {
+  const porSerial = new Map<string, LinhaPC[]>();
+  for (const l of linhas) {
+    const lista = porSerial.get(l.serial);
+    if (lista) lista.push(l);
+    else porSerial.set(l.serial, [l]);
+  }
+  for (const lista of porSerial.values()) lista.sort((a, b) => a.dataFim.localeCompare(b.dataFim));
+
+  const plano: PlanoPC = {
+    novos: [], atualizados: [], inalterados: 0, suspeitos: [], foraDoCadastro: 0,
+  };
+
+  const seriaisUsados = new Set<string>();
+
+  for (const m of medidores) {
+    const candidatos = porSerial.get(m.serial.toUpperCase());
+    if (!candidatos) continue;
+    seriaisUsados.add(m.serial.toUpperCase());
+
+    const escolhido = candidatos.find((c) => c.dataFim >= m.data);
+    const base = {
+      medidor_id: m.id,
+      serial: m.serial,
+      matricula: m.matricula,
+    };
+
+    if (!escolhido) {
+      const ultimo = candidatos[candidatos.length - 1];
+      plano.suspeitos.push({
+        ...base,
+        servico: ultimo.servico,
+        dataFim: ultimo.dataFim,
+        tipoServ: ultimo.tipoServ,
+        detail: `Instalação em ${formatBR(ultimo.dataFim)} é anterior à atribuição (${formatBR(m.data)})`,
+      });
+      continue;
+    }
+
+    const item: ItemPlano = {
+      ...base,
+      servico: escolhido.servico,
+      dataFim: escolhido.dataFim,
+      tipoServ: escolhido.tipoServ,
+      detail: "",
+    };
+
+    const jaBate =
+      m.status === "CONCLUIDO" &&
+      m.servico_gdis === escolhido.servico &&
+      m.data_conclusao === escolhido.dataFim;
+
+    if (jaBate) {
+      plano.inalterados++;
+    } else if (m.status === "PENDENTE") {
+      item.detail = `Serviço ${escolhido.servico} · instalado em ${formatBR(escolhido.dataFim)}`;
+      plano.novos.push(item);
+    } else {
+      const partes: string[] = [];
+      if (m.servico_gdis !== escolhido.servico) {
+        partes.push(`Serviço: ${m.servico_gdis ?? "—"} → ${escolhido.servico}`);
+      }
+      if (m.data_conclusao !== escolhido.dataFim) {
+        partes.push(`Data: ${m.data_conclusao ? formatBR(m.data_conclusao) : "—"} → ${formatBR(escolhido.dataFim)}`);
+      }
+      item.detail = partes.join(" | ");
+      plano.atualizados.push(item);
+    }
+  }
+
+  for (const serial of porSerial.keys()) {
+    if (!seriaisUsados.has(serial)) plano.foraDoCadastro++;
+  }
+
+  return plano;
+}
+
+function formatBR(iso: string): string {
+  const [a, m, d] = iso.split("-");
+  return d ? `${d}/${m}/${a}` : iso;
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // COMPONENTES AUXILIARES
 // ═══════════════════════════════════════════════════════════════════
 
@@ -347,7 +567,7 @@ function GdisTab() {
           <p className="text-xs font-semibold text-blue-900 mb-2">Como funciona?</p>
           <ul className="text-xs text-blue-800 space-y-1">
             <li>• Carregue o relatório exportado do GDIS (Excel ou CSV)</li>
-            <li>• O sistema encontra automaticamente a linha de cabeçalho e reconhece colunas como "Serviço", "Matrícula", "Término", "Cód. Serv." e "Tipo Serv." (mesmo com nomes ligeiramente diferentes)</li>
+            <li>• O sistema encontra automaticamente a linha de cabeçalho e reconhece as colunas <strong>Serviço</strong>, <strong>Matrícula</strong>, <strong>Término</strong>, <strong>Cód. Serv.</strong> e <strong>Tipo Serv.</strong> (mesmo com nomes ligeiramente diferentes)</li>
             <li>• Cada linha vira um serviço importado, usado depois na conferência de medidores</li>
             <li>• Linhas sem número de serviço ou com data de término inválida são ignoradas e listadas como aviso</li>
           </ul>
@@ -749,10 +969,302 @@ function AtribuicoesTab() {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// ABA PLANILHA PC
+// ═══════════════════════════════════════════════════════════════════
+
+type PCStage = "idle" | "parsing" | "ready" | "importing" | "done" | "error";
+
+function PlanilhaPCTab() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [stage, setStage] = useState<PCStage>("idle");
+  const [parseInfo, setParseInfo] = useState<ParsePCResult | null>(null);
+  const [plano, setPlano] = useState<PlanoPC | null>(null);
+  const [resultado, setResultado] = useState<ResultadoPC | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [progress, setProgress] = useState("");
+  const [incluirSuspeitos, setIncluirSuspeitos] = useState(false);
+
+  const reset = () => {
+    setFile(null); setStage("idle"); setParseInfo(null); setPlano(null);
+    setResultado(null); setErrorMsg(null); setProgress(""); setIncluirSuspeitos(false);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const processFile = useCallback(async (f: File) => {
+    setFile(f); setStage("parsing"); setPlano(null); setErrorMsg(null); setResultado(null);
+    setProgress("Lendo a planilha… (arquivos grandes levam alguns segundos)");
+
+    let info: ParsePCResult;
+    try {
+      const buffer = await f.arrayBuffer();
+      info = parsePCWorkbook(buffer);
+    } catch {
+      setStage("error");
+      setErrorMsg("Falha ao ler o arquivo. Verifique se é um Excel/CSV válido.");
+      return;
+    }
+    setParseInfo(info);
+    if (info.erro) {
+      setStage("error");
+      setErrorMsg(info.erro);
+      return;
+    }
+
+    setProgress("Buscando medidores no banco de dados…");
+    let medidores: MedidorParaPC[];
+    try {
+      medidores = await getMedidoresParaPC();
+    } catch (err) {
+      setStage("error");
+      setErrorMsg(err instanceof Error ? err.message : "Erro ao buscar medidores.");
+      return;
+    }
+
+    setProgress("Cruzando os medidores instalados…");
+    setPlano(montarPlanoPC(info.linhas, medidores));
+    setStage("ready");
+    setProgress("");
+  }, []);
+
+  const aAplicar = plano
+    ? [...plano.novos, ...plano.atualizados, ...(incluirSuspeitos ? plano.suspeitos : [])]
+    : [];
+
+  const handleImport = async () => {
+    if (aAplicar.length === 0) return;
+    setStage("importing");
+    setProgress(`Aplicando 0 de ${aAplicar.length}…`);
+    try {
+      const res = await importarPlanilhaPC(
+        aAplicar.map((i) => ({
+          medidor_id: i.medidor_id,
+          serial: i.serial,
+          servico: i.servico,
+          data_fim: i.dataFim,
+          tipo_serv: i.tipoServ,
+          matricula: i.matricula,
+        })),
+        (feitos, total) => setProgress(`Aplicando ${feitos} de ${total}…`)
+      );
+      setResultado(res);
+      setStage("done");
+    } catch (err) {
+      setStage("error");
+      setErrorMsg(err instanceof Error ? err.message : "Erro ao importar.");
+    } finally {
+      setProgress("");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {stage === "error" && errorMsg && (
+        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-800">
+          <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-bold">Erro</p>
+            <p className="text-xs text-red-600 mt-0.5">{errorMsg}</p>
+          </div>
+          <button onClick={reset} className="text-red-400 hover:text-red-600"><X size={16} /></button>
+        </div>
+      )}
+
+      {stage === "done" && resultado && (
+        <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800">
+          <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-bold">Importação concluída!</p>
+            <p className="text-xs text-emerald-600 mt-0.5">
+              {resultado.medidores_atualizados} medidor{resultado.medidores_atualizados !== 1 ? "es" : ""} vinculado
+              {resultado.medidores_atualizados !== 1 ? "s" : ""} · {resultado.servicos_criados} serviço
+              {resultado.servicos_criados !== 1 ? "s" : ""} criado{resultado.servicos_criados !== 1 ? "s" : ""} · {resultado.servicos_conferidos} conferido
+              {resultado.servicos_conferidos !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <button onClick={reset} className="text-emerald-600 hover:text-emerald-800 text-xs font-semibold flex items-center gap-1">
+            <RefreshCw size={13} /> Nova importação
+          </button>
+        </div>
+      )}
+
+      {stage === "idle" && (
+        <>
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) processFile(f); }}
+            onClick={() => fileInputRef.current?.click()}
+            className={`flex flex-col items-center justify-center gap-4 p-12 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${dragging ? "border-violet-500 bg-violet-50" : "border-slate-300 bg-slate-50 hover:border-violet-400 hover:bg-violet-50/50"}`}
+          >
+            <div className="w-14 h-14 rounded-2xl bg-violet-100 flex items-center justify-center">
+              <Link2 size={28} className="text-violet-600" />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-bold text-slate-800">Arraste a Planilha PC aqui ou clique</p>
+              <p className="text-xs text-slate-500 mt-1">Suporte: .xlsx, .xls, .csv · aceita arquivos grandes (70 mil+ linhas)</p>
+            </div>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }} />
+          </div>
+
+          <div className="p-4 bg-violet-50 border border-violet-200 rounded-xl">
+            <p className="text-xs font-semibold text-violet-900 mb-2">Como funciona?</p>
+            <ul className="text-xs text-violet-800 space-y-1">
+              <li>• A Planilha PC mostra exatamente em qual serviço cada medidor foi instalado</li>
+              <li>• O sistema lê a coluna <strong>Medidor_Instalado</strong> e cruza com os seriais do nosso cadastro</li>
+              <li>• Onde encontra, vincula o <strong>NumServ</strong> como serviço e grava a <strong>DataFim</strong> como data de instalação, fechando o medidor como concluído</li>
+              <li>• Se o serviço ainda não existir no sistema, ele é criado a partir da própria planilha — é ela que comprova que o serviço aconteceu</li>
+              <li>• Quando um serial aparece em vários serviços, vale a primeira instalação a partir da data em que aquele medidor foi atribuído</li>
+            </ul>
+          </div>
+
+          <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl">
+            <p className="text-xs font-semibold text-slate-700 mb-2">Colunas que a planilha deve ter</p>
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="bg-slate-100">
+                    {["A", "B", "…", "G", "…", "I"].map((h) => (
+                      <th key={h} className="px-2 py-1.5 text-center font-bold text-slate-500 border-r border-slate-200 last:border-r-0">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="px-2 py-1.5 text-center text-slate-700 border-r border-slate-200 font-medium">NumServ</td>
+                    <td className="px-2 py-1.5 text-center text-slate-700 border-r border-slate-200 font-medium">tipo_serv</td>
+                    <td className="px-2 py-1.5 text-center text-slate-400 border-r border-slate-200">—</td>
+                    <td className="px-2 py-1.5 text-center text-slate-700 border-r border-slate-200 font-medium">DataFim</td>
+                    <td className="px-2 py-1.5 text-center text-slate-400 border-r border-slate-200">—</td>
+                    <td className="px-2 py-1.5 text-center text-slate-700 font-medium">Medidor_Instalado</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-slate-400 mt-1.5">As colunas são localizadas pelo nome no cabeçalho — a ordem pode variar. As demais são ignoradas.</p>
+          </div>
+        </>
+      )}
+
+      {(stage === "parsing" || stage === "importing") && (
+        <div className="flex flex-col items-center justify-center gap-3 p-12 bg-slate-50 border border-slate-200 rounded-2xl">
+          <Loader2 size={32} className="animate-spin text-violet-500" />
+          <p className="text-sm font-semibold text-slate-600">{progress || "Processando…"}</p>
+        </div>
+      )}
+
+      {(stage === "ready" || stage === "done") && file && plano && parseInfo && (
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="flex items-center gap-3 p-4 border-b border-slate-100 bg-slate-50/50">
+            <div className="w-10 h-10 rounded-xl bg-violet-100 flex items-center justify-center shrink-0">
+              <FileText size={18} className="text-violet-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-slate-900 truncate">{file.name}</p>
+              <p className="text-xs text-slate-500">
+                {(file.size / 1024 / 1024).toFixed(1)} MB · {parseInfo.linhas.length.toLocaleString("pt-BR")} instalações lidas
+              </p>
+            </div>
+            {stage === "ready" && (
+              <button onClick={reset} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><X size={16} /></button>
+            )}
+          </div>
+
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                <Link2 size={16} className="text-emerald-500 mx-auto mb-1" />
+                <p className="text-2xl font-black text-emerald-700">{plano.novos.length}</p>
+                <p className="text-xs font-semibold text-emerald-600 mt-0.5">Novas vinculações</p>
+              </div>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                <GitCompare size={16} className="text-amber-500 mx-auto mb-1" />
+                <p className="text-2xl font-black text-amber-700">{plano.atualizados.length}</p>
+                <p className="text-xs font-semibold text-amber-600 mt-0.5">Correções</p>
+              </div>
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
+                <CheckCircle2 size={16} className="text-slate-400 mx-auto mb-1" />
+                <p className="text-2xl font-black text-slate-500">{plano.inalterados}</p>
+                <p className="text-xs font-semibold text-slate-400 mt-0.5">Já corretos</p>
+              </div>
+            </div>
+
+            <CollapsibleList
+              title="Novas vinculações — medidores pendentes que serão concluídos"
+              count={plano.novos.length}
+              color="bg-emerald-50 border-emerald-200 text-emerald-800"
+              items={plano.novos}
+            />
+            <CollapsibleList
+              title="Correções — serviço ou data serão sobrescritos"
+              count={plano.atualizados.length}
+              color="bg-amber-50 border-amber-200 text-amber-800"
+              items={plano.atualizados}
+            />
+            <CollapsibleList
+              title="Suspeitos — instalação anterior à data de atribuição"
+              count={plano.suspeitos.length}
+              color="bg-orange-50 border-orange-200 text-orange-800"
+              items={plano.suspeitos}
+            />
+
+            {stage === "ready" && plano.suspeitos.length > 0 && (
+              <label className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-xl cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={incluirSuspeitos}
+                  onChange={(e) => setIncluirSuspeitos(e.target.checked)}
+                  className="mt-0.5 accent-orange-600"
+                />
+                <span className="text-xs text-orange-800">
+                  Aplicar também os {plano.suspeitos.length} suspeitos. A única instalação encontrada para esses
+                  seriais é anterior à data em que o medidor foi atribuído — normalmente é uma instalação antiga
+                  do mesmo serial, não a atual. Deixe desmarcado se não tiver certeza.
+                </span>
+              </label>
+            )}
+
+            <div className="text-xs text-slate-500 space-y-0.5 px-1">
+              <p>{parseInfo.linhas.length.toLocaleString("pt-BR")} instalações na planilha · {plano.foraDoCadastro.toLocaleString("pt-BR")} seriais não são do nosso cadastro (ignorados)</p>
+              {parseInfo.semMedidor > 0 && <p>{parseInfo.semMedidor.toLocaleString("pt-BR")} linhas sem Medidor_Instalado preenchido</p>}
+              {parseInfo.semData > 0 && <p>{parseInfo.semData.toLocaleString("pt-BR")} linhas com DataFim inválida</p>}
+            </div>
+
+            {aAplicar.length === 0 && stage === "ready" && (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                <CheckCircle2 size={20} className="text-emerald-500 mx-auto mb-1" />
+                <p className="text-sm font-semibold text-emerald-700">Nada a aplicar — tudo já está vinculado corretamente.</p>
+              </div>
+            )}
+
+            {stage === "ready" && (
+              <div className="flex gap-3 pt-1">
+                <button onClick={reset} className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 font-semibold text-sm rounded-xl hover:bg-slate-100 transition-colors">
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleImport}
+                  disabled={aAplicar.length === 0}
+                  className="flex-1 px-4 py-2.5 bg-[#1e3a5f] text-white font-bold text-sm rounded-xl hover:bg-[#2d5282] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
+                >
+                  <Link2 size={16} />
+                  Vincular {aAplicar.length.toLocaleString("pt-BR")} medidor{aAplicar.length !== 1 ? "es" : ""}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PÁGINA PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
 
-type Tab = "gdis" | "atribuicoes";
+type Tab = "gdis" | "atribuicoes" | "pc";
 
 export default function ImportacaoPage() {
   const [activeTab, setActiveTab] = useState<Tab>("gdis");
@@ -762,12 +1274,16 @@ export default function ImportacaoPage() {
       {/* Header */}
       <div>
         <h2 className="text-xl font-bold text-[#0f172a]">Importar</h2>
-        <p className="text-sm text-[#64748b] mt-0.5">Importe relatórios GDIS ou sincronize a planilha de atribuições SAP.</p>
+        <p className="text-sm text-[#64748b] mt-0.5">Importe relatórios GDIS, sincronize a planilha de atribuições SAP ou vincule serviços pela Planilha PC.</p>
       </div>
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
-        {([ ["gdis", "Relatório GDIS"], ["atribuicoes", "Planilha de Atribuições"] ] as [Tab, string][]).map(([key, label]) => (
+        {([
+          ["gdis", "Relatório GDIS"],
+          ["atribuicoes", "Planilha de Atribuições"],
+          ["pc", "Planilha PC"],
+        ] as [Tab, string][]).map(([key, label]) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
@@ -783,7 +1299,7 @@ export default function ImportacaoPage() {
       </div>
 
       {/* Tab content */}
-      {activeTab === "gdis" ? <GdisTab /> : <AtribuicoesTab />}
+      {activeTab === "gdis" ? <GdisTab /> : activeTab === "atribuicoes" ? <AtribuicoesTab /> : <PlanilhaPCTab />}
     </div>
   );
 }

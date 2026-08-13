@@ -92,6 +92,46 @@ export async function createColaborador(
   return data as Colaborador;
 }
 
+export async function updateColaborador(
+  matricula: string,
+  patch: Partial<Omit<Colaborador, 'matricula' | 'created_at' | 'updated_at'>>
+): Promise<Colaborador> {
+  const { data, error } = await supabase
+    .from('colaboradores')
+    .update(patch)
+    .eq('matricula', matricula)
+    .select()
+    .single();
+  if (error) throw new Error(error.message);
+  return data as Colaborador;
+}
+
+/** Quantos medidores estão vinculados a esta matrícula (bloqueiam a exclusão). */
+export async function countMedidoresDoColaborador(matricula: string): Promise<number> {
+  const { count, error } = await supabase
+    .from('medidores_list')
+    .select('id', { count: 'exact', head: true })
+    .eq('matricula', matricula);
+  if (error) throw new Error(error.message);
+  return count ?? 0;
+}
+
+export async function deleteColaborador(matricula: string): Promise<void> {
+  const { error } = await supabase
+    .from('colaboradores')
+    .delete()
+    .eq('matricula', matricula);
+  if (error) {
+    // 23503 = foreign_key_violation — há medidores/serviços apontando pra ele
+    if (error.code === '23503') {
+      throw new Error(
+        'Este colaborador possui medidores ou serviços vinculados e não pode ser excluído. Marque-o como inativo.'
+      );
+    }
+    throw new Error(error.message);
+  }
+}
+
 // ─── Medidores ────────────────────────────────────────────────────────────────
 
 export interface SortConfig {
@@ -580,6 +620,79 @@ export async function syncAtribuicoes(params: {
   }
 
   return { updated, deleted };
+}
+
+// ─── Planilha PC ──────────────────────────────────────────────────────────────
+
+/** Estado atual de um medidor, para cruzar com a Planilha PC. */
+export interface MedidorParaPC {
+  id: string;
+  serial: string;
+  status: 'PENDENTE' | 'CONCLUIDO';
+  servico_gdis: string | null;
+  data: string;                    // data de atribuição
+  data_conclusao: string | null;
+  matricula: string;
+}
+
+/** Uma vinculação a aplicar: medidor ← serviço + data de instalação. */
+export interface ItemPC {
+  medidor_id: string;
+  serial: string;
+  servico: string;
+  data_fim: string;                // YYYY-MM-DD
+  tipo_serv: string;
+  matricula: string;
+}
+
+export interface ResultadoPC {
+  servicos_criados: number;
+  medidores_atualizados: number;
+  servicos_conferidos: number;
+}
+
+export async function getMedidoresParaPC(): Promise<MedidorParaPC[]> {
+  const result: MedidorParaPC[] = [];
+  let from = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from('medidores_list')
+      .select('id,serial,status,servico_gdis,data,data_conclusao,matricula')
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    result.push(...((data ?? []) as MedidorParaPC[]));
+    if ((data ?? []).length < PAGE) break;
+    from += PAGE;
+  }
+  return result;
+}
+
+/**
+ * Aplica as vinculações em lotes. O RPC cria os serviços que ainda não existem
+ * em servicos_report antes de vincular, então a FK de servico_gdis é satisfeita.
+ */
+export async function importarPlanilhaPC(
+  itens: ItemPC[],
+  onProgress?: (feitos: number, total: number) => void
+): Promise<ResultadoPC> {
+  const total: ResultadoPC = {
+    servicos_criados: 0,
+    medidores_atualizados: 0,
+    servicos_conferidos: 0,
+  };
+  const BATCH = 500;
+  for (let i = 0; i < itens.length; i += BATCH) {
+    const lote = itens.slice(i, i + BATCH);
+    const { data, error } = await supabase.rpc('importar_planilha_pc', { p_itens: lote });
+    if (error) throw new Error(error.message);
+    const r = data as ResultadoPC;
+    total.servicos_criados += r?.servicos_criados ?? 0;
+    total.medidores_atualizados += r?.medidores_atualizados ?? 0;
+    total.servicos_conferidos += r?.servicos_conferidos ?? 0;
+    onProgress?.(Math.min(i + BATCH, itens.length), itens.length);
+  }
+  return total;
 }
 
 // ─── Dashboard Metrics ────────────────────────────────────────────────────────

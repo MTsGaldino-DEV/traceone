@@ -343,17 +343,16 @@ interface ItemPlano {
 }
 
 interface PlanoPC {
-  novos: ItemPlano[];         // medidor pendente → vira concluído
-  atualizados: ItemPlano[];   // já concluído, mas serviço/data mudam
-  inalterados: number;        // já bate com a planilha
-  suspeitos: ItemPlano[];     // instalação anterior à data de atribuição
-  foraDoCadastro: number;     // seriais da planilha que não são nossos
+  novos: ItemPlano[];            // medidor pendente → vira concluído
+  atualizados: ItemPlano[];      // já concluído, mas serviço/data mudam
+  inalterados: number;           // já bate com a planilha
+  anterioresAtribuicao: number;  // última instalação é anterior à atribuição
+  foraDoCadastro: number;        // seriais da planilha que não são nossos
 }
 
 /**
- * Cruza a planilha com o banco. Cada registro de medidor escolhe, entre as
- * instalações do seu serial, a primeira com DataFim >= sua data de atribuição —
- * assim um serial reaproveitado casa cada atribuição com a instalação certa.
+ * Cruza a planilha com o banco. Quando o serial aparece em vários serviços,
+ * vale a instalação de DataFim mais recente — é onde o medidor está agora.
  */
 function montarPlanoPC(linhas: LinhaPC[], medidores: MedidorParaPC[]): PlanoPC {
   const porSerial = new Map<string, LinhaPC[]>();
@@ -365,7 +364,7 @@ function montarPlanoPC(linhas: LinhaPC[], medidores: MedidorParaPC[]): PlanoPC {
   for (const lista of porSerial.values()) lista.sort((a, b) => a.dataFim.localeCompare(b.dataFim));
 
   const plano: PlanoPC = {
-    novos: [], atualizados: [], inalterados: 0, suspeitos: [], foraDoCadastro: 0,
+    novos: [], atualizados: [], inalterados: 0, anterioresAtribuicao: 0, foraDoCadastro: 0,
   };
 
   const seriaisUsados = new Set<string>();
@@ -375,24 +374,15 @@ function montarPlanoPC(linhas: LinhaPC[], medidores: MedidorParaPC[]): PlanoPC {
     if (!candidatos) continue;
     seriaisUsados.add(m.serial.toUpperCase());
 
-    const escolhido = candidatos.find((c) => c.dataFim >= m.data);
+    // lista ordenada por data: a última é a instalação mais recente
+    const escolhido = candidatos[candidatos.length - 1];
+    if (escolhido.dataFim < m.data) plano.anterioresAtribuicao++;
+
     const base = {
       medidor_id: m.id,
       serial: m.serial,
       matricula: m.matricula,
     };
-
-    if (!escolhido) {
-      const ultimo = candidatos[candidatos.length - 1];
-      plano.suspeitos.push({
-        ...base,
-        servico: ultimo.servico,
-        dataFim: ultimo.dataFim,
-        tipoServ: ultimo.tipoServ,
-        detail: `Instalação em ${formatBR(ultimo.dataFim)} é anterior à atribuição (${formatBR(m.data)})`,
-      });
-      continue;
-    }
 
     const item: ItemPlano = {
       ...base,
@@ -984,11 +974,10 @@ function PlanilhaPCTab() {
   const [resultado, setResultado] = useState<ResultadoPC | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
-  const [incluirSuspeitos, setIncluirSuspeitos] = useState(false);
 
   const reset = () => {
     setFile(null); setStage("idle"); setParseInfo(null); setPlano(null);
-    setResultado(null); setErrorMsg(null); setProgress(""); setIncluirSuspeitos(false);
+    setResultado(null); setErrorMsg(null); setProgress("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
@@ -1028,9 +1017,7 @@ function PlanilhaPCTab() {
     setProgress("");
   }, []);
 
-  const aAplicar = plano
-    ? [...plano.novos, ...plano.atualizados, ...(incluirSuspeitos ? plano.suspeitos : [])]
-    : [];
+  const aAplicar = plano ? [...plano.novos, ...plano.atualizados] : [];
 
   const handleImport = async () => {
     if (aAplicar.length === 0) return;
@@ -1115,7 +1102,7 @@ function PlanilhaPCTab() {
               <li>• O sistema lê a coluna <strong>Medidor_Instalado</strong> e cruza com os seriais do nosso cadastro</li>
               <li>• Onde encontra, vincula o <strong>NumServ</strong> como serviço e grava a <strong>DataFim</strong> como data de instalação, fechando o medidor como concluído</li>
               <li>• Se o serviço ainda não existir no sistema, ele é criado a partir da própria planilha — é ela que comprova que o serviço aconteceu</li>
-              <li>• Quando um serial aparece em vários serviços, vale a primeira instalação a partir da data em que aquele medidor foi atribuído</li>
+              <li>• Quando um serial aparece em vários serviços, vale a instalação de <strong>DataFim mais recente</strong> — é onde o medidor está atualmente</li>
             </ul>
           </div>
 
@@ -1202,27 +1189,15 @@ function PlanilhaPCTab() {
               color="bg-amber-50 border-amber-200 text-amber-800"
               items={plano.atualizados}
             />
-            <CollapsibleList
-              title="Suspeitos — instalação anterior à data de atribuição"
-              count={plano.suspeitos.length}
-              color="bg-orange-50 border-orange-200 text-orange-800"
-              items={plano.suspeitos}
-            />
-
-            {stage === "ready" && plano.suspeitos.length > 0 && (
-              <label className="flex items-start gap-2 p-3 bg-orange-50 border border-orange-200 rounded-xl cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={incluirSuspeitos}
-                  onChange={(e) => setIncluirSuspeitos(e.target.checked)}
-                  className="mt-0.5 accent-orange-600"
-                />
-                <span className="text-xs text-orange-800">
-                  Aplicar também os {plano.suspeitos.length} suspeitos. A única instalação encontrada para esses
-                  seriais é anterior à data em que o medidor foi atribuído — normalmente é uma instalação antiga
-                  do mesmo serial, não a atual. Deixe desmarcado se não tiver certeza.
+            {plano.anterioresAtribuicao > 0 && (
+              <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                <AlertTriangle size={13} className="shrink-0 mt-0.5 text-slate-400" />
+                <span className="text-xs text-slate-600">
+                  Em {plano.anterioresAtribuicao.toLocaleString("pt-BR")} medidores a instalação mais recente
+                  é anterior à data em que ele foi atribuído. Eles estão incluídos — a planilha é a fonte de
+                  onde o medidor está hoje —, mas a divergência de datas pode indicar cadastro desatualizado.
                 </span>
-              </label>
+              </div>
             )}
 
             <div className="text-xs text-slate-500 space-y-0.5 px-1">

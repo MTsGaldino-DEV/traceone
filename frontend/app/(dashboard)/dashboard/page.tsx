@@ -435,6 +435,7 @@ export default function DashboardPage() {
         conclusaoInicio: conclusaoInicio || undefined,
         conclusaoFim: conclusaoFim || undefined,
         materialCategorias: filterMaterialCategoria.length > 0 ? filterMaterialCategoria : undefined,
+        diasMin: filterAcima45 ? 45 : undefined,
       });
       setMetrics(m);
     } catch {
@@ -453,6 +454,7 @@ export default function DashboardPage() {
     conclusaoInicio,
     conclusaoFim,
     filterMaterialCategoria,
+    filterAcima45,
   ]);
 
   useEffect(() => {

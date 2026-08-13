@@ -727,96 +727,67 @@ export interface MetricsFilters {
   conclusaoInicio?: string;
   conclusaoFim?: string;
   materialCategorias?: string[];
+  /** Só conta medidores com mais de N dias de atribuição. */
+  diasMin?: number;
 }
 
+/** Traduz as categorias da tela para os códigos SAP correspondentes. */
+function materialCategoriasParaSap(categorias?: string[]): string[] | null {
+  if (!categorias || categorias.length === 0) return null;
+  let codes: string[] = [];
+  if (categorias.includes('TC')) codes = [...codes, '242206', '242818', '242198'];
+  if (categorias.includes('Chave De Aferição')) codes = [...codes, '306225'];
+  if (categorias.includes('Medidores')) {
+    codes = [...codes, '380231', '383150', '383151', '383152', '319525', '380230', '319392',
+      '376701', '376874', '378257', '376700', '376872', '320069', '376873', '326751',
+      '377205', '383894', '380971', '376699', '388485', '388486'];
+  }
+  return codes.length > 0 ? codes : null;
+}
+
+/**
+ * Métricas do dashboard, agregadas no banco.
+ *
+ * Antes isso era feito no cliente, baixando a tabela toda em páginas de 1000
+ * sem ORDER BY — o que devolvia linhas repetidas e omitia outras, errando as
+ * contagens. Agora é uma chamada só, e os filtros de supervisor e de dias
+ * mínimos também entram na conta.
+ */
 export async function getMedidoresMetrics(filters?: MetricsFilters): Promise<DashboardMetrics> {
-  const rows: { status: string; valor: number | null; dias: number | null; matricula: string; nome: string }[] = [];
-  let from = 0;
-  const PAGE = 1000;
+  const { data, error } = await supabase.rpc('get_medidores_metrics', {
+    p_matriculas: filters?.matriculas?.length ? filters.matriculas : null,
+    p_supervisores: filters?.supervisores?.length ? filters.supervisores : null,
+    p_status: filters?.status?.length ? filters.status : null,
+    p_servico_gdis: filters?.servicoGdis?.trim() || null,
+    p_serial: filters?.serial?.trim() || null,
+    p_atribuicao_inicio: filters?.atribuicaoInicio || null,
+    p_atribuicao_fim: filters?.atribuicaoFim || null,
+    p_conclusao_inicio: filters?.conclusaoInicio || null,
+    p_conclusao_fim: filters?.conclusaoFim || null,
+    p_material_sap_codes: materialCategoriasParaSap(filters?.materialCategorias),
+    p_dias_min: filters?.diasMin ?? null,
+  });
+  if (error) throw new Error(error.message);
 
-  while (true) {
-    let query = supabase
-      .from('vw_medidores_completo')
-      .select('"Concluído/Pendente","VALOR","DIAS DE ATRIBUIÇÃO","MATRICULA","COLABORADOR"')
-      .range(from, from + PAGE - 1);
-
-    if (filters?.matriculas && filters.matriculas.length > 0) query = query.in('MATRICULA', filters.matriculas);
-    if (filters?.supervisores && filters.supervisores.length > 0) query = query.in('SUPERVISOR', filters.supervisores);
-    if (filters?.servicoGdis) query = query.ilike('"SERVIÇO GDIS"', `%${filters.servicoGdis.trim()}%`);
-    if (filters?.serial) {
-      const rawSerials = filters.serial.split(',').map(s => s.trim()).filter(Boolean);
-      if (rawSerials.length === 1) query = query.ilike('"Serial"', `%${rawSerials[0]}%`);
-      else if (rawSerials.length > 1) query = query.or(rawSerials.map(s => `"Serial".ilike.%${s}%`).join(','));
-    }
-    if (filters?.status && filters.status.length > 0) query = query.in('"Concluído/Pendente"', filters.status);
-    if (filters?.atribuicaoInicio) query = query.gte('Data', filters.atribuicaoInicio);
-    if (filters?.atribuicaoFim) query = query.lte('Data', filters.atribuicaoFim);
-    if (filters?.conclusaoInicio) query = query.gte('Data da conclusão', filters.conclusaoInicio);
-    if (filters?.conclusaoFim) query = query.lte('Data da conclusão', filters.conclusaoFim);
-    if (filters?.materialCategorias && filters.materialCategorias.length > 0) {
-      let sapCodes: string[] = [];
-      if (filters.materialCategorias.includes("TC")) sapCodes = [...sapCodes, '242206', '242818', '242198'];
-      if (filters.materialCategorias.includes("Chave De Aferição")) sapCodes = [...sapCodes, '306225'];
-      if (filters.materialCategorias.includes("Medidores")) sapCodes = [...sapCodes, '380231', '383150', '383151', '383152', '319525', '380230', '319392', '376701', '376874', '378257', '376700', '376872', '320069', '376873', '326751', '377205', '383894', '380971', '376699', '388485', '388486'];
-      if (sapCodes.length > 0) query = query.in('Material SAP', sapCodes);
-    }
-
-    const { data, error } = await query;
-    if (error) throw new Error(error.message);
-    for (const row of data ?? []) {
-      rows.push({
-        status: (row as any)['Concluído/Pendente'] ?? '',
-        valor: (row as any)['VALOR'] ?? null,
-        dias: (row as any)['DIAS DE ATRIBUIÇÃO'] ?? null,
-        matricula: (row as any)['MATRICULA'] ?? '',
-        nome: (row as any)['COLABORADOR'] ?? '',
-      });
-    }
-    if ((data ?? []).length < PAGE) break;
-    from += PAGE;
-  }
-
-  let pendentes = 0, concluidos = 0, valorPendente = 0, valorConcluido = 0;
-  let somasDiasPendentes = 0, contDiasPendentes = 0, acima45 = 0;
-  const rankMap = new Map<string, { nome: string; qtd_pendente: number; valor_pendente: number }>();
-
-  for (const r of rows) {
-    const isPendente = r.status === 'PENDENTE';
-    const valor = typeof r.valor === 'number' ? r.valor : 0;
-    const dias = typeof r.dias === 'number' ? r.dias : 0;
-    if (isPendente) {
-      pendentes++;
-      valorPendente += valor;
-      somasDiasPendentes += dias;
-      contDiasPendentes++;
-      if (dias > 45) acima45++;
-      if (r.matricula) {
-        const entry = rankMap.get(r.matricula) ?? { nome: r.nome, qtd_pendente: 0, valor_pendente: 0 };
-        entry.qtd_pendente++;
-        entry.valor_pendente += valor;
-        rankMap.set(r.matricula, entry);
-      }
-    } else {
-      concluidos++;
-      valorConcluido += valor;
-    }
-  }
-
-  const ranking: RankingItem[] = Array.from(rankMap.entries())
-    .map(([matricula, v]) => ({ matricula, ...v }))
-    .sort((a, b) => b.valor_pendente - a.valor_pendente)
-    .slice(0, 10);
+  const m = (data as { metrics: Record<string, number>; ranking: RankingItem[] } | null);
+  const met = m?.metrics ?? ({} as Record<string, number>);
+  const num = (v: unknown) => (typeof v === 'number' ? v : Number(v ?? 0));
 
   return {
-    total: rows.length,
-    pendentes,
-    concluidos,
-    valorPendente,
-    valorConcluido,
-    valorTotal: valorPendente + valorConcluido,
-    mediaDiasPendentes: contDiasPendentes > 0 ? somasDiasPendentes / contDiasPendentes : 0,
-    acima45dias: acima45,
-    ranking,
+    total: num(met.total),
+    pendentes: num(met.pendentes),
+    concluidos: num(met.concluidos),
+    valorPendente: num(met.valor_pendente),
+    valorConcluido: num(met.valor_concluido),
+    valorTotal: num(met.valor_total),
+    mediaDiasPendentes: num(met.media_dias_pendentes),
+    acima45dias: num(met.acima_45),
+    ranking: (m?.ranking ?? []).map((r) => ({
+      matricula: r.matricula,
+      nome: r.nome,
+      qtd_pendente: num(r.qtd_pendente),
+      valor_pendente: num(r.valor_pendente),
+    })),
   };
 }
 

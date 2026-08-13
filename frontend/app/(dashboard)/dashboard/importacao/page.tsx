@@ -246,7 +246,11 @@ const PC_ALIASES: Record<string, string> = {
 
 const TC_ALIASES: Record<string, string> = {
   ...ALIASES_COMUNS,
-  serial: "serial",
+  // O export vem como num_equipamento; "serial" fica aceito porque algumas
+  // planilhas circulam com a coluna já renomeada.
+  num_equipamento: "serial", "num equipamento": "serial",
+  numequipamento: "serial", "numero equipamento": "serial",
+  num_equip: "serial", serial: "serial",
 };
 
 /** Uma instalação declarada pela planilha. */
@@ -1039,19 +1043,19 @@ const FORMATO_TC: FormatoVinculacao = {
   equipamento: "TC",
   equipamentoPlural: "TCs",
   aliases: TC_ALIASES,
-  colunaSerial: "serial",
+  colunaSerial: "num_equipamento",
   dica: "Suporte: .xlsx, .xls, .csv",
   cor: CORES_TC,
   comoFunciona: [
     "A Planilha TC mostra em qual serviço cada transformador de corrente foi utilizado",
-    <>O sistema lê a coluna <strong>serial</strong> e cruza com os seriais do nosso cadastro</>,
+    <>O sistema lê a coluna <strong>num_equipamento</strong> (ou <strong>serial</strong>, se a planilha vier renomeada) e cruza com os seriais do nosso cadastro</>,
     <>Onde encontra, vincula o <strong>NumServ</strong> como serviço e grava a <strong>DataFim</strong> como data, fechando o TC como concluído</>,
     <>Entram as linhas de instalação e de remoção — a coluna <strong>cod_acao</strong> não filtra nada aqui</>,
     "Como TC é trifásico, o mesmo serviço costuma cobrir 2 a 6 seriais — todos recebem o mesmo número de serviço",
   ],
   colunas: [
     { letra: "A", nome: "NumServ" }, { letra: "B", nome: "tipo_serv" }, { letra: "…", nome: null },
-    { letra: "G", nome: "DataFim" }, { letra: "…", nome: null }, { letra: "I", nome: "serial" },
+    { letra: "G", nome: "DataFim" }, { letra: "…", nome: null }, { letra: "I", nome: "num_equipamento" },
   ],
 };
 

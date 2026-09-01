@@ -684,7 +684,7 @@ export async function importarPlanilhaPC(
   const BATCH = 500;
   for (let i = 0; i < itens.length; i += BATCH) {
     const lote = itens.slice(i, i + BATCH);
-    const { data, error } = await supabase.rpc('', { p_itens: lote });
+    const { data, error } = await supabase.rpc('importar_planilha_pc', { p_itens: lote });
     if (error) throw new Error(error.message);
     const r = data as ResultadoPC;
     total.servicos_criados += r?.servicos_criados ?? 0;

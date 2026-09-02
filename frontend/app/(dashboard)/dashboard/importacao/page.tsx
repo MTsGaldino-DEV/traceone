@@ -68,6 +68,9 @@ function parseDateGdis(raw: unknown): string | null {
   if (!raw) return null;
   if (typeof raw === "number") {
     const d = new Date(Math.round((raw - 25569) * 864e5));
+    if (isNaN(d.getTime())) return null;
+    const ano = d.getUTCFullYear();
+    if (ano < 1990 || ano > 2100) return null;
     return d.toISOString();
   }
   const str = String(raw).trim();
@@ -261,12 +264,21 @@ interface LinhaPC {
   tipoServ: string;
 }
 
+/** Serial de data do Excel (dias desde 1899-12-30) plausível: anos entre 1990 e 2100. */
+function dataExcelPlausivel(raw: number): boolean {
+  const d = new Date(Math.round((raw - 25569) * 864e5));
+  if (isNaN(d.getTime())) return false;
+  const ano = d.getUTCFullYear();
+  return ano >= 1990 && ano <= 2100;
+}
+
 /** Converte DD/MM/AAAA [HH:MM] ou serial de data do Excel em YYYY-MM-DD. */
 function parseDataPC(raw: unknown): string | null {
   if (raw === null || raw === undefined || raw === "") return null;
   if (typeof raw === "number") {
+    if (!dataExcelPlausivel(raw)) return null;
     const d = new Date(Math.round((raw - 25569) * 864e5));
-    return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    return d.toISOString().slice(0, 10);
   }
   const str = String(raw).trim();
   const dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
@@ -340,7 +352,15 @@ function parsePCWorkbook(
     const servico = String(row[colMap["servico"]] ?? "").trim();
     if (!servico) continue;
 
-    const dataFim = parseDataPC(row[colMap["data_fim"]]);
+    const rawDataFim = row[colMap["data_fim"]];
+    if (typeof rawDataFim === "number" && !dataExcelPlausivel(rawDataFim)) {
+      return {
+        linhas: [], totalLinhas: 0, semMedidor: 0, semData: 0,
+        erro: `A coluna 'DataFim' parece errada: a linha ${i + 1} tem o valor "${rawDataFim}", que não corresponde a uma data válida. Confira se a planilha tem a coluna DataFim na posição certa.`,
+      };
+    }
+
+    const dataFim = parseDataPC(rawDataFim);
     if (!dataFim) { semData++; continue; }
 
     const tipoServ = colMap["tipo_serv"] !== undefined

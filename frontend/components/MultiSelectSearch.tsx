@@ -3,15 +3,22 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 
+export interface MultiSelectOption {
+  value: string;
+  label: string;
+}
+
 interface MultiSelectSearchProps {
   label: string;
-  options: string[];
+  /** Cada opção pode ser uma string simples ou um {value, label} — útil quando o texto buscável (label) difere do valor salvo no filtro (value), como em código + descrição. */
+  options: string[] | MultiSelectOption[];
   selected: string[];
   onChange: (v: string[]) => void;
+  placeholder?: string;
 }
 
 /** Dropdown de seleção múltipla com busca interna. */
-export function MultiSelectSearch({ label, options, selected, onChange }: MultiSelectSearchProps) {
+export function MultiSelectSearch({ label, options, selected, onChange, placeholder }: MultiSelectSearchProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const ref = useRef<HTMLDivElement>(null);
@@ -24,13 +31,18 @@ export function MultiSelectSearch({ label, options, selected, onChange }: MultiS
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const filtered = options.filter((o) =>
-    o.toLowerCase().includes(search.toLowerCase())
+  const normalized: MultiSelectOption[] = options.map((o) =>
+    typeof o === "string" ? { value: o, label: o } : o
   );
+
+  const q = search.toLowerCase();
+  const filtered = normalized.filter((o) => o.label.toLowerCase().includes(q));
 
   const toggle = (v: string) => {
     onChange(selected.includes(v) ? selected.filter((s) => s !== v) : [...selected, v]);
   };
+
+  const labelFor = (v: string) => normalized.find((o) => o.value === v)?.label ?? v;
 
   return (
     <div className="relative" ref={ref}>
@@ -43,7 +55,7 @@ export function MultiSelectSearch({ label, options, selected, onChange }: MultiS
           {selected.length === 0
             ? label
             : selected.length === 1
-            ? selected[0]
+            ? labelFor(selected[0])
             : `${label} (${selected.length})`}
         </span>
         {selected.length > 0 && (
@@ -63,7 +75,7 @@ export function MultiSelectSearch({ label, options, selected, onChange }: MultiS
             <input
               autoFocus
               type="text"
-              placeholder="Buscar..."
+              placeholder={placeholder ?? "Buscar..."}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full text-xs px-2 py-1 border border-[#e5e7eb] rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
@@ -75,16 +87,16 @@ export function MultiSelectSearch({ label, options, selected, onChange }: MultiS
             ) : (
               filtered.map((o) => (
                 <label
-                  key={o}
+                  key={o.value}
                   className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#f9fafb] cursor-pointer"
                 >
                   <input
                     type="checkbox"
-                    checked={selected.includes(o)}
-                    onChange={() => toggle(o)}
+                    checked={selected.includes(o.value)}
+                    onChange={() => toggle(o.value)}
                     className="w-3 h-3 accent-blue-600"
                   />
-                  <span className="text-xs text-[#374151] truncate">{o}</span>
+                  <span className="text-xs text-[#374151] truncate">{o.label}</span>
                 </label>
               ))
             )}

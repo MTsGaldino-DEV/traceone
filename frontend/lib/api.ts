@@ -160,7 +160,7 @@ export async function getMedidoresCompleto(filters?: {
   atribuicaoFim?: string;
   conclusaoInicio?: string;
   conclusaoFim?: string;
-  materialCategorias?: string[];
+  materialSapCodes?: string[];
   diasMin?: number;
   sorts?: SortConfig[];
   page?: number;
@@ -206,20 +206,8 @@ export async function getMedidoresCompleto(filters?: {
   if (filters?.conclusaoFim) query = query.lte('Data da conclusão', filters.conclusaoFim);
   if (filters?.diasMin !== undefined) query = query.gt('"DIAS DE ATRIBUIÇÃO"', filters.diasMin);
 
-  if (filters?.materialCategorias && filters.materialCategorias.length > 0) {
-    let sapCodes: string[] = [];
-    if (filters.materialCategorias.includes("TC")) {
-      sapCodes = [...sapCodes, '242206', '242818', '242198'];
-    }
-    if (filters.materialCategorias.includes("Chave De Aferição")) {
-      sapCodes = [...sapCodes, '306225'];
-    }
-    if (filters.materialCategorias.includes("Medidores")) {
-      sapCodes = [...sapCodes, '380231', '383150', '383151', '383152', '319525', '380230', '319392', '376701', '376874', '378257', '376700', '376872', '320069', '376873', '326751', '377205', '383894', '380971', '376699', '388485', '388486'];
-    }
-    if (sapCodes.length > 0) {
-      query = query.in('Material SAP', sapCodes);
-    }
+  if (filters?.materialSapCodes && filters.materialSapCodes.length > 0) {
+    query = query.in('Material SAP', filters.materialSapCodes);
   }
 
   if (filters?.page && filters?.pageSize) {
@@ -726,23 +714,9 @@ export interface MetricsFilters {
   atribuicaoFim?: string;
   conclusaoInicio?: string;
   conclusaoFim?: string;
-  materialCategorias?: string[];
+  materialSapCodes?: string[];
   /** Só conta medidores com mais de N dias de atribuição. */
   diasMin?: number;
-}
-
-/** Traduz as categorias da tela para os códigos SAP correspondentes. */
-function materialCategoriasParaSap(categorias?: string[]): string[] | null {
-  if (!categorias || categorias.length === 0) return null;
-  let codes: string[] = [];
-  if (categorias.includes('TC')) codes = [...codes, '242206', '242818', '242198'];
-  if (categorias.includes('Chave De Aferição')) codes = [...codes, '306225'];
-  if (categorias.includes('Medidores')) {
-    codes = [...codes, '380231', '383150', '383151', '383152', '319525', '380230', '319392',
-      '376701', '376874', '378257', '376700', '376872', '320069', '376873', '326751',
-      '377205', '383894', '380971', '376699', '388485', '388486'];
-  }
-  return codes.length > 0 ? codes : null;
 }
 
 /**
@@ -764,7 +738,7 @@ export async function getMedidoresMetrics(filters?: MetricsFilters): Promise<Das
     p_atribuicao_fim: filters?.atribuicaoFim || null,
     p_conclusao_inicio: filters?.conclusaoInicio || null,
     p_conclusao_fim: filters?.conclusaoFim || null,
-    p_material_sap_codes: materialCategoriasParaSap(filters?.materialCategorias),
+    p_material_sap_codes: filters?.materialSapCodes?.length ? filters.materialSapCodes : null,
     p_dias_min: filters?.diasMin ?? null,
   });
   if (error) throw new Error(error.message);
@@ -904,12 +878,8 @@ export async function getMedidoresAcima45Dias(
     if (filters?.atribuicaoFim) query = query.lte('Data', filters.atribuicaoFim);
     if (filters?.conclusaoInicio) query = query.gte('Data da conclusão', filters.conclusaoInicio);
     if (filters?.conclusaoFim) query = query.lte('Data da conclusão', filters.conclusaoFim);
-    if (filters?.materialCategorias && filters.materialCategorias.length > 0) {
-      let sapCodes: string[] = [];
-      if (filters.materialCategorias.includes("TC")) sapCodes = [...sapCodes, '242206', '242818', '242198'];
-      if (filters.materialCategorias.includes("Chave De Aferição")) sapCodes = [...sapCodes, '306225'];
-      if (filters.materialCategorias.includes("Medidores")) sapCodes = [...sapCodes, '380231', '383150', '383151', '383152', '319525', '380230', '319392', '376701', '376874', '378257', '376700', '376872', '320069', '376873', '326751', '377205', '383894', '380971', '376699', '388485', '388486'];
-      if (sapCodes.length > 0) query = query.in('Material SAP', sapCodes);
+    if (filters?.materialSapCodes && filters.materialSapCodes.length > 0) {
+      query = query.in('Material SAP', filters.materialSapCodes);
     }
 
     const { data, error } = await query;

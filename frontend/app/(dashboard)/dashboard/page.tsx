@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   AlertTriangle,
   RefreshCw,
@@ -246,7 +246,6 @@ const ALL_EXPORT_COLS = [
   "DIAS DE ATRIBUIÇÃO", "Data da conclusão",
 ];
 
-const MATERIAL_CATS = ["Medidores", "TC", "Chave De Aferição"];
 
 const LOG_EVENTO_CONFIG: Record<string, { label: string; bg: string; ring: string; text: string }> = {
   CADASTRADO:        { label: "Cadastrado",        bg: "bg-blue-400",    ring: "ring-blue-300",    text: "text-blue-700" },
@@ -287,16 +286,12 @@ export default function DashboardPage() {
   // Filter options
   const [supervisorOptions, setSupervisorOptions] = useState<string[]>([]);
   const [matriculaOptions, setMatriculaOptions] = useState<string[]>([]);
-  const [gcOptions, setGcOptions] = useState<string[]>([]);
-  const [goOptions, setGoOptions] = useState<string[]>([]);
   const [allColabs, setAllColabs] = useState<Colaborador[]>([]);
   const [allTipos, setAllTipos] = useState<TipoMedidor[]>([]);
 
   // Active filters
   const [filterMatriculas, setFilterMatriculas] = useState<string[]>([]);
   const [filterSupervisores, setFilterSupervisores] = useState<string[]>([]);
-  const [filterGC, setFilterGC] = useState<string[]>([]);
-  const [filterGO, setFilterGO] = useState<string[]>([]);
   const [filterStatus, setFilterStatus] = useState<string[]>([]);
   const [filterServicoGdis, setFilterServicoGdis] = useState("");
   const [filterSerial, setFilterSerial] = useState("");
@@ -304,7 +299,7 @@ export default function DashboardPage() {
   const [atribuicaoFim, setAtribuicaoFim] = useState("");
   const [conclusaoInicio, setConclusaoInicio] = useState("");
   const [conclusaoFim, setConclusaoFim] = useState("");
-  const [filterMaterialCategoria, setFilterMaterialCategoria] = useState<string[]>([]);
+  const [filterMaterialSap, setFilterMaterialSap] = useState<string[]>([]);
 
   // Sort
   const [sorts, setSorts] = useState<SortConfig[]>([]);
@@ -350,27 +345,22 @@ export default function DashboardPage() {
     getColaboradores().then((colabs) => {
       setAllColabs(colabs);
       const mats = [...new Set(colabs.map((c) => c.matricula))].sort();
-      const gcs = [...new Set(colabs.map((c) => c.gc).filter(Boolean) as string[])].sort();
-      const gos = [...new Set(colabs.map((c) => c.go).filter(Boolean) as string[])].sort();
       setMatriculaOptions(mats);
-      setGcOptions(gcs);
-      setGoOptions(gos);
     }).catch(() => {});
     getTiposMedidores(false).then(setAllTipos).catch(() => {});
   }, []);
 
-  // ── resolve GC/GO/Supervisor → matriculas ────────────────────────────────
+  // Opções do filtro de Material: pesquisáveis por código SAP ou pelo nome do material.
+  const materialSapOptions = useMemo(
+    () => allTipos.map((t) => ({ value: t.cod_sap, label: `${t.cod_sap} — ${t.tipo}` })),
+    [allTipos]
+  );
+
+  // ── resolve Colaborador/Supervisor → matriculas ──────────────────────────
 
   const buildFinalMatriculas = useCallback((): string[] => {
-    const set = new Set<string>(filterMatriculas);
-    if (filterGC.length > 0) {
-      allColabs.filter((c) => c.gc && filterGC.includes(c.gc)).forEach((c) => set.add(c.matricula));
-    }
-    if (filterGO.length > 0) {
-      allColabs.filter((c) => c.go && filterGO.includes(c.go)).forEach((c) => set.add(c.matricula));
-    }
-    return [...set];
-  }, [filterMatriculas, filterGC, filterGO, allColabs]);
+    return [...filterMatriculas];
+  }, [filterMatriculas]);
 
   // ── fetch data ────────────────────────────────────────────────────────────
 
@@ -390,7 +380,7 @@ export default function DashboardPage() {
           atribuicaoFim: atribuicaoFim || undefined,
           conclusaoInicio: conclusaoInicio || undefined,
           conclusaoFim: conclusaoFim || undefined,
-          materialCategorias: filterMaterialCategoria.length > 0 ? filterMaterialCategoria : undefined,
+          materialSapCodes: filterMaterialSap.length > 0 ? filterMaterialSap : undefined,
           diasMin: filterAcima45 ? 45 : undefined,
           sorts: sorts.length > 0 ? sorts : undefined,
           page: p,
@@ -414,7 +404,7 @@ export default function DashboardPage() {
       atribuicaoFim,
       conclusaoInicio,
       conclusaoFim,
-      filterMaterialCategoria,
+      filterMaterialSap,
       filterAcima45,
       sorts,
     ]
@@ -434,7 +424,7 @@ export default function DashboardPage() {
         atribuicaoFim: atribuicaoFim || undefined,
         conclusaoInicio: conclusaoInicio || undefined,
         conclusaoFim: conclusaoFim || undefined,
-        materialCategorias: filterMaterialCategoria.length > 0 ? filterMaterialCategoria : undefined,
+        materialSapCodes: filterMaterialSap.length > 0 ? filterMaterialSap : undefined,
         diasMin: filterAcima45 ? 45 : undefined,
       });
       setMetrics(m);
@@ -453,7 +443,7 @@ export default function DashboardPage() {
     atribuicaoFim,
     conclusaoInicio,
     conclusaoFim,
-    filterMaterialCategoria,
+    filterMaterialSap,
     filterAcima45,
   ]);
 
@@ -476,7 +466,7 @@ export default function DashboardPage() {
         atribuicaoFim: atribuicaoFim || undefined,
         conclusaoInicio: conclusaoInicio || undefined,
         conclusaoFim: conclusaoFim || undefined,
-        materialCategorias: filterMaterialCategoria.length > 0 ? filterMaterialCategoria : undefined,
+        materialSapCodes: filterMaterialSap.length > 0 ? filterMaterialSap : undefined,
       });
 
       if (rows.length === 0) {
@@ -517,8 +507,6 @@ export default function DashboardPage() {
   const clearFilters = () => {
     setFilterMatriculas([]);
     setFilterSupervisores([]);
-    setFilterGC([]);
-    setFilterGO([]);
     setFilterStatus([]);
     setFilterServicoGdis("");
     setFilterSerial("");
@@ -526,7 +514,7 @@ export default function DashboardPage() {
     setAtribuicaoFim("");
     setConclusaoInicio("");
     setConclusaoFim("");
-    setFilterMaterialCategoria([]);
+    setFilterMaterialSap([]);
     setFilterAcima45(false);
     setSorts([]);
   };
@@ -534,8 +522,6 @@ export default function DashboardPage() {
   const hasFilters =
     filterMatriculas.length > 0 ||
     filterSupervisores.length > 0 ||
-    filterGC.length > 0 ||
-    filterGO.length > 0 ||
     filterStatus.length > 0 ||
     filterServicoGdis ||
     filterSerial ||
@@ -543,7 +529,7 @@ export default function DashboardPage() {
     atribuicaoFim ||
     conclusaoInicio ||
     conclusaoFim ||
-    filterMaterialCategoria.length > 0 ||
+    filterMaterialSap.length > 0 ||
     filterAcima45 ||
     sorts.length > 0;
 
@@ -572,7 +558,7 @@ export default function DashboardPage() {
         atribuicaoFim: atribuicaoFim || undefined,
         conclusaoInicio: conclusaoInicio || undefined,
         conclusaoFim: conclusaoFim || undefined,
-        materialCategorias: filterMaterialCategoria.length > 0 ? filterMaterialCategoria : undefined,
+        materialSapCodes: filterMaterialSap.length > 0 ? filterMaterialSap : undefined,
         diasMin: filterAcima45 ? 45 : undefined,
         sorts: sorts.length > 0 ? sorts : undefined,
       });
@@ -1088,18 +1074,6 @@ export default function DashboardPage() {
             onChange={setFilterSupervisores}
           />
           <MultiSelectSearch
-            label="GC"
-            options={gcOptions}
-            selected={filterGC}
-            onChange={setFilterGC}
-          />
-          <MultiSelectSearch
-            label="GO"
-            options={goOptions}
-            selected={filterGO}
-            onChange={setFilterGO}
-          />
-          <MultiSelectSearch
             label="Status"
             options={["PENDENTE", "CONCLUIDO"]}
             selected={filterStatus}
@@ -1107,9 +1081,10 @@ export default function DashboardPage() {
           />
           <MultiSelectSearch
             label="Material"
-            options={MATERIAL_CATS}
-            selected={filterMaterialCategoria}
-            onChange={setFilterMaterialCategoria}
+            options={materialSapOptions}
+            selected={filterMaterialSap}
+            onChange={setFilterMaterialSap}
+            placeholder="Buscar por código ou material..."
           />
 
           {/* Date ranges */}

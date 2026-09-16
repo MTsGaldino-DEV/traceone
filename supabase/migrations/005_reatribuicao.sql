@@ -4,9 +4,10 @@
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------
--- 1. Adicionar valor 'REATRIBUIDO' ao enum status_medidor
+-- 1. Valor 'REATRIBUIDO' do enum status_medidor — movido para a migration
+--    003b_reatribuido_enum_value.sql (não pode ser criado e usado na mesma
+--    transação; ver comentário lá).
 -- -----------------------------------------------------------------------------
-ALTER TYPE status_medidor ADD VALUE IF NOT EXISTS 'REATRIBUIDO';
 
 -- -----------------------------------------------------------------------------
 -- 2. Adicionar colunas de reatribuição em medidores_list

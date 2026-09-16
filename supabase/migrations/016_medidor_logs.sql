@@ -15,8 +15,10 @@ CREATE INDEX IF NOT EXISTS idx_medidor_logs_medidor_id ON medidor_logs(medidor_i
 CREATE INDEX IF NOT EXISTS idx_medidor_logs_created_at  ON medidor_logs(created_at DESC);
 
 ALTER TABLE medidor_logs ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Authenticated can read logs" ON medidor_logs;
 CREATE POLICY "Authenticated can read logs" ON medidor_logs
   FOR SELECT USING (auth.role() = 'authenticated');
+DROP POLICY IF EXISTS "Authenticated can insert logs" ON medidor_logs;
 CREATE POLICY "Authenticated can insert logs" ON medidor_logs
   FOR INSERT WITH CHECK (auth.role() = 'authenticated');
 

@@ -7,6 +7,10 @@ export function canManageUsers(role?: Role | null): boolean {
   return !!role && MANAGER_ROLES.includes(role);
 }
 
+export function isAdmin(role?: Role | null): boolean {
+  return role === "ADMIN";
+}
+
 /** Cadastro de colaboradores: supervisor pra cima na hierarquia. */
 export function canManageColaboradores(role?: Role | null): boolean {
   return !!role && MANAGER_ROLES.includes(role);

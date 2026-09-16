@@ -840,6 +840,102 @@ export async function vincularServicoGdisMedidor(id: string, servicoGdis: string
   if (error) throw new Error(error.message);
 }
 
+// ─── Duplicidade: mesmo serviço GDIS vinculado a mais de um medidor ───────────
+
+export interface DuplicidadeMedidor {
+  servicoGdis: string;
+  id: string;
+  serial: string;
+  matricula: string;
+  colaborador: string;
+  status: "PENDENTE" | "CONCLUIDO";
+  data: string;
+  dias: number;
+}
+
+/** Log de serviços já revisados — a foto dos seriais é do momento da revisão. */
+export interface DuplicidadeRevisado {
+  servicoGdis: string;
+  seriaisConflitantes: string[];
+  revisadoPor: string;
+  revisadoEm: string;
+}
+
+export async function getDuplicidadeMedidores(): Promise<DuplicidadeMedidor[]> {
+  const { data, error } = await supabase.rpc('get_duplicidade_medidores');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as DuplicidadeMedidor[];
+}
+
+export async function getDuplicidadeRevisados(): Promise<DuplicidadeRevisado[]> {
+  const { data, error } = await supabase.rpc('get_duplicidade_revisados');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as DuplicidadeRevisado[];
+}
+
+export async function marcarDuplicidadeRevisado(servicoGdis: string): Promise<void> {
+  const { error } = await supabase.rpc('marcar_duplicidade_revisado', {
+    p_servico_gdis: servicoGdis,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export async function reverterDuplicidadeRevisado(servicoGdis: string): Promise<void> {
+  const { error } = await supabase
+    .from('duplicidade_revisados')
+    .delete()
+    .eq('servico_gdis', servicoGdis);
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Desvincula um medidor de um serviço GDIS incorreto (caso de duplicidade) e
+ * o devolve para PENDENTE, para que possa ser conferido de novo com o serial
+ * correto. Diferente de vincularServicoGdisMedidor: não marca como concluído.
+ */
+export async function desvincularDuplicidadeMedidor(id: string): Promise<void> {
+  const { error } = await supabase
+    .from('medidores_list')
+    .update({
+      servico_gdis: null,
+      status: 'PENDENTE',
+      data_conclusao: null,
+    })
+    .eq('id', id);
+  if (error) throw new Error(error.message);
+}
+
+// ─── Recuperação do incidente: medidores com serial reconstruído (ADMIN) ──────
+
+export interface RecuperacaoPendenteItem {
+  medidorId: string;
+  tipo: "SEM_SERIAL" | "AMBIGUO";
+  candidatosSerial: string[] | null;
+  serialAtual: string;
+  matricula: string;
+  colaborador: string;
+  materialSap: string;
+  tipoEquipamento: string;
+  servicoGdis: string | null;
+  status: "PENDENTE" | "CONCLUIDO";
+  data: string;
+  criadoEm: string;
+}
+
+export async function getRecuperacaoPendente(): Promise<RecuperacaoPendenteItem[]> {
+  const { data, error } = await supabase.rpc('get_recuperacao_pendente');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as RecuperacaoPendenteItem[];
+}
+
+export async function resolverRecuperacaoPendente(medidorId: string, serialCorreto: string): Promise<void> {
+  const { error } = await supabase.rpc('resolver_recuperacao_pendente', {
+    p_medidor_id: medidorId,
+    p_serial_correto: serialCorreto,
+  });
+  if (error) throw new Error(error.message);
+}
+
 export interface MedidorAcima45Dias {
   matricula: string;
   colaborador: string;

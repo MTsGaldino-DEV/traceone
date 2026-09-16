@@ -9,8 +9,10 @@ import {
   UploadCloud,
   CheckSquare,
   AlarmClockCheck,
+  Copy,
   Users,
   Contact,
+  ShieldAlert,
   LogOut,
   ChevronRight,
   KeyRound,
@@ -19,7 +21,7 @@ import {
 import { supabase } from "../../lib/supabase";
 import type { Profile } from "../../lib/supabase";
 import { logout, changeOwnPassword } from "../../lib/api";
-import { canManageUsers, roleLabels } from "../../lib/permissions";
+import { canManageUsers, isAdmin, roleLabels } from "../../lib/permissions";
 
 const navItems = [
   { label: "Lista de Medidores", href: "/dashboard", icon: LayoutDashboard, despachante: true },
@@ -27,12 +29,18 @@ const navItems = [
   { label: "Importar Relatório", href: "/dashboard/importacao", icon: UploadCloud, despachante: false },
   { label: "Conferência", href: "/dashboard/conferencia", icon: CheckSquare, despachante: false },
   { label: "Conferência +45 dias", href: "/dashboard/conferencia-45dias", icon: AlarmClockCheck, despachante: false },
+  { label: "Duplicidade", href: "/dashboard/duplicidade", icon: Copy, despachante: false },
 ];
 
 // Visíveis apenas de supervisor pra cima na hierarquia
 const gestaoNavItems = [
   { label: "Gestão de Colaboradores", href: "/dashboard/colaboradores", icon: Contact },
   { label: "Gestão de Usuários", href: "/dashboard/usuarios", icon: Users },
+];
+
+// Visível só pra ADMIN
+const adminNavItems = [
+  { label: "Recuperação de Dados", href: "/dashboard/recuperacao-incidente", icon: ShieldAlert },
 ];
 
 export default function DashboardLayout({
@@ -75,7 +83,8 @@ export default function DashboardLayout({
 
   const isDespachante = profile?.role === "DESPACHANTE";
   const visibleNavItems = isDespachante ? navItems.filter((n) => n.despachante) : navItems;
-  const allNavItems = canManageUsers(profile?.role) ? [...visibleNavItems, ...gestaoNavItems] : visibleNavItems;
+  const withGestao = canManageUsers(profile?.role) ? [...visibleNavItems, ...gestaoNavItems] : visibleNavItems;
+  const allNavItems = isAdmin(profile?.role) ? [...withGestao, ...adminNavItems] : withGestao;
 
   useEffect(() => {
     if (!profile) return;

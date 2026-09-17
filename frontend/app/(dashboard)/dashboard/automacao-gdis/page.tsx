@@ -48,7 +48,7 @@ const COLUNAS_BASE = [
 const ROTULO_RESULTADO: Record<ResultadoAutomacao, string> = {
   ENCONTRADO: "Encontrado (não gravado)",
   GRAVADO: "Gravado",
-  CONFLITO: "Conflito — serial já existe em outro medidor",
+  CONFLITO: "Gravado (serial duplicado em outra linha)",
   VAZIO: "Sem serial no GDIS",
   ERRO: "Erro na consulta",
 };
@@ -77,8 +77,7 @@ type StatusLinha =
   | { tipo: "encontrado"; serial: string; matExecutor?: string }
   | { tipo: "vazio"; msg: string }
   | { tipo: "erro"; msg: string }
-  | { tipo: "conflito"; serial: string; msg: string }
-  | { tipo: "gravado"; serial: string };
+  | { tipo: "gravado"; serial: string; duplicado?: boolean };
 
 interface LogEntry {
   id: number;
@@ -225,20 +224,26 @@ export default function AutomacaoGdisPage() {
   const gravarSerial = useCallback(
     async (medidorId: string, serial: string, modo: "AUTOMATICO" | "MANUAL") => {
       try {
-        await resolverRecuperacaoPendente(medidorId, serial);
-        setStatus((prev) => ({ ...prev, [medidorId]: { tipo: "gravado", serial } }));
-        addLog("sucesso", `Serial ${serial} gravado no medidor.`);
-        registrarLog(medidorId, "GRAVADO", { serial, modo });
+        const duplicado = await resolverRecuperacaoPendente(medidorId, serial);
+        setStatus((prev) => ({ ...prev, [medidorId]: { tipo: "gravado", serial, duplicado } }));
+        if (duplicado) {
+          addLog(
+            "aviso",
+            `Serial ${serial} gravado, mas já existe em outra linha — marcado para revisão de duplicidade depois.`
+          );
+          registrarLog(medidorId, "CONFLITO", {
+            serial,
+            obs: "Gravado; serial já existia em outra linha da lista de medidores.",
+            modo,
+          });
+        } else {
+          addLog("sucesso", `Serial ${serial} gravado no medidor.`);
+          registrarLog(medidorId, "GRAVADO", { serial, modo });
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "erro";
-        if (msg.includes("CONFLITO_SERIAL")) {
-          setStatus((prev) => ({ ...prev, [medidorId]: { tipo: "conflito", serial, msg } }));
-          addLog("aviso", `Conflito: serial ${serial} já pertence a outro medidor. Linha ficou pendente de revisão manual.`);
-          registrarLog(medidorId, "CONFLITO", { serial, obs: msg, modo });
-        } else {
-          addLog("erro", `Falha ao gravar ${serial}: ${msg}`);
-          registrarLog(medidorId, "ERRO", { serial, obs: msg, modo });
-        }
+        addLog("erro", `Falha ao gravar ${serial}: ${msg}`);
+        registrarLog(medidorId, "ERRO", { serial, obs: msg, modo });
       }
     },
     [addLog, registrarLog]
@@ -398,22 +403,25 @@ export default function AutomacaoGdisPage() {
 
   // ── Relatório do lote ──────────────────────────────────────────────────────
   const baixarRelatorio = () => {
-    const rotulo: Record<StatusLinha["tipo"], string> = {
-      pendente: "Não consultado",
-      consultando: "Interrompido durante consulta",
-      encontrado: "Encontrado (não gravado)",
-      vazio: "Sem serial no GDIS",
-      erro: "Erro na consulta",
-      conflito: "Conflito — serial já existe em outro medidor",
-      gravado: "Gravado",
-    };
-
     // Percorre o status (ordem de processamento), não a lista visível.
     const linhas = Object.entries(status).map(([medidorId, st]) => {
       const i = cadastroRef.current.get(medidorId);
-      const serialResultado =
-        st.tipo === "gravado" || st.tipo === "encontrado" || st.tipo === "conflito" ? st.serial : "";
-      const obs = st.tipo === "erro" || st.tipo === "vazio" || st.tipo === "conflito" ? st.msg : "";
+      const serialResultado = st.tipo === "gravado" || st.tipo === "encontrado" ? st.serial : "";
+      const obs = st.tipo === "erro" || st.tipo === "vazio" ? st.msg : "";
+      const rotuloLinha =
+        st.tipo === "gravado" && st.duplicado
+          ? "Gravado (serial duplicado em outra linha)"
+          : st.tipo === "pendente"
+          ? "Não consultado"
+          : st.tipo === "consultando"
+          ? "Interrompido durante consulta"
+          : st.tipo === "encontrado"
+          ? "Encontrado (não gravado)"
+          : st.tipo === "vazio"
+          ? "Sem serial no GDIS"
+          : st.tipo === "erro"
+          ? "Erro na consulta"
+          : "Gravado";
       return [
         i?.servicoGdis ?? "",
         i?.matricula ?? "",
@@ -421,7 +429,7 @@ export default function AutomacaoGdisPage() {
         i?.tipoEquipamento ?? "",
         i?.serialAtual ?? "",
         serialResultado,
-        rotulo[st.tipo],
+        rotuloLinha,
         obs,
       ];
     });
@@ -461,7 +469,7 @@ export default function AutomacaoGdisPage() {
   const qtdEncontrados = Object.values(status).filter((s) => s.tipo === "encontrado").length;
   const qtdGravados = Object.values(status).filter((s) => s.tipo === "gravado").length;
   const qtdFalhas = Object.values(status).filter((s) => s.tipo === "erro" || s.tipo === "vazio").length;
-  const qtdConflitos = Object.values(status).filter((s) => s.tipo === "conflito").length;
+  const qtdDuplicados = Object.values(status).filter((s) => s.tipo === "gravado" && s.duplicado).length;
   const qtdProcessados = Object.keys(status).length;
 
   return (
@@ -594,7 +602,8 @@ export default function AutomacaoGdisPage() {
             <div className="flex items-center gap-3">
               <Loader2 size={14} className="animate-spin text-blue-600" />
               <span className="text-xs text-slate-600 flex-1">
-                Consultando… {qtdEncontrados} encontrado(s), {qtdGravados} gravado(s), {qtdConflitos} conflito(s), {qtdFalhas} sem resultado.
+                Consultando… {qtdEncontrados} encontrado(s), {qtdGravados} gravado(s)
+                {qtdDuplicados > 0 && ` (${qtdDuplicados} duplicado(s))`}, {qtdFalhas} sem resultado.
               </span>
               <button
                 type="button"
@@ -611,8 +620,8 @@ export default function AutomacaoGdisPage() {
             <div className="flex items-center gap-3">
               <CheckCircle2 size={14} className="text-emerald-600" />
               <span className="text-xs text-slate-600 flex-1">
-                Finalizado: {qtdEncontrados} encontrado(s), {qtdGravados} gravado(s), {qtdConflitos} conflito(s),{" "}
-                {qtdFalhas} sem resultado.
+                Finalizado: {qtdEncontrados} encontrado(s), {qtdGravados} gravado(s)
+                {qtdDuplicados > 0 && ` (${qtdDuplicados} duplicado(s))`}, {qtdFalhas} sem resultado.
               </span>
               <button
                 type="button"
@@ -783,7 +792,15 @@ export default function AutomacaoGdisPage() {
                           {item.tipoEquipamento}
                         </td>
                         <td className="px-4 py-2.5">
-                          {st?.tipo === "gravado" ? (
+                          {st?.tipo === "gravado" && st.duplicado ? (
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-bold rounded-lg"
+                              title="Gravado, mas esse serial já existe em outra linha. Revisar duplicidade depois."
+                            >
+                              <AlertTriangle size={12} />
+                              {st.serial} (duplicado)
+                            </span>
+                          ) : st?.tipo === "gravado" ? (
                             <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold rounded-lg">
                               <CheckCircle2 size={12} />
                               {st.serial}
@@ -792,14 +809,6 @@ export default function AutomacaoGdisPage() {
                             <span className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-semibold">
                               <Loader2 size={12} className="animate-spin" />
                               Consultando…
-                            </span>
-                          ) : st?.tipo === "conflito" ? (
-                            <span
-                              className="inline-flex items-center gap-1.5 px-2 py-1 bg-red-50 border border-red-200 text-red-700 text-[11px] font-bold rounded-lg"
-                              title={st.msg}
-                            >
-                              <AlertTriangle size={12} />
-                              Conflito: {st.serial} já existe
                             </span>
                           ) : st?.tipo === "erro" || st?.tipo === "vazio" ? (
                             <span className="text-[11px] text-amber-700" title={st.msg}>
@@ -911,7 +920,9 @@ export default function AutomacaoGdisPage() {
                         <div className="flex items-center gap-2 flex-wrap text-[11px] font-bold">
                           <span className="text-slate-500">{e.total} linha(s)</span>
                           {e.gravados > 0 && <span className="text-emerald-700">{e.gravados} gravado(s)</span>}
-                          {e.conflitos > 0 && <span className="text-red-700">{e.conflitos} conflito(s)</span>}
+                          {e.conflitos > 0 && (
+                            <span className="text-amber-700">{e.conflitos} duplicado(s)</span>
+                          )}
                           {e.vazios > 0 && <span className="text-amber-700">{e.vazios} sem serial</span>}
                           {e.erros > 0 && <span className="text-amber-700">{e.erros} erro(s)</span>}
                           {e.encontrados > 0 && <span className="text-blue-700">{e.encontrados} não gravado(s)</span>}

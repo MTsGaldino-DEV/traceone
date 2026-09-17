@@ -928,12 +928,14 @@ export async function getRecuperacaoPendente(): Promise<RecuperacaoPendenteItem[
   return (data ?? []) as RecuperacaoPendenteItem[];
 }
 
-export async function resolverRecuperacaoPendente(medidorId: string, serialCorreto: string): Promise<void> {
-  const { error } = await supabase.rpc('resolver_recuperacao_pendente', {
+/** Retorna true se o serial já existia em outra linha (grava mesmo assim). */
+export async function resolverRecuperacaoPendente(medidorId: string, serialCorreto: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('resolver_recuperacao_pendente', {
     p_medidor_id: medidorId,
     p_serial_correto: serialCorreto,
   });
   if (error) throw new Error(error.message);
+  return !!data;
 }
 
 // ─── Histórico das rodadas da Automação GDIS (ADMIN) ─────────────────────────

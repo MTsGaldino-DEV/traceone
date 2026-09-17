@@ -65,6 +65,10 @@ export default function AutomacaoGdisPage() {
   const [logAberto, setLogAberto] = useState(true);
   const logBoxRef = useRef<HTMLDivElement>(null);
 
+  // Guarda todo item já carregado. As linhas gravadas saem da lista no reload
+  // seguinte, e sem isso o relatório perderia exatamente os sucessos.
+  const cadastroRef = useRef(new Map<string, RecuperacaoPendenteItem>());
+
   // O handler do SSE é criado uma vez; o ref mantém o valor atual do toggle
   // acessível lá dentro sem recriar a conexão a cada troca.
   const modoAutomaticoRef = useRef(modoAutomatico);
@@ -86,6 +90,7 @@ export default function AutomacaoGdisPage() {
       const candidatos = todos.filter(
         (i) => i.servicoGdis && i.tipoEquipamento.toUpperCase().startsWith("MEDID")
       );
+      candidatos.forEach((i) => cadastroRef.current.set(i.medidorId, i));
       setItens(candidatos);
       setPagina(1);
     } catch (err) {
@@ -258,6 +263,18 @@ export default function AutomacaoGdisPage() {
   const itensPagina = itens.slice((pagina - 1) * TAMANHO_PAGINA, pagina * TAMANHO_PAGINA);
   const paginaToda = itensPagina.every((i) => selecionados.includes(i.medidorId));
 
+  // Pega os primeiros N que ainda não foram tentados nesta sessão, pra
+  // rodadas de teste sucessivas irem avançando na lista em vez de repetir.
+  const selecionarPrimeiros = (n: number) => {
+    // "pendente" é linha de lote cancelado que nunca chegou a ser consultada.
+    const naoProcessados = itens.filter((i) => {
+      const st = status[i.medidorId];
+      return !st || st.tipo === "pendente";
+    });
+    setSelecionados(naoProcessados.slice(0, n).map((i) => i.medidorId));
+    setPagina(1);
+  };
+
   const togglePagina = () => {
     const idsPagina = itensPagina.map((i) => i.medidorId);
     setSelecionados((prev) =>
@@ -284,24 +301,23 @@ export default function AutomacaoGdisPage() {
       gravado: "Gravado",
     };
 
-    const linhas = itens
-      .filter((i) => status[i.medidorId])
-      .map((i) => {
-        const st = status[i.medidorId];
-        const serialResultado =
-          st.tipo === "gravado" || st.tipo === "encontrado" || st.tipo === "conflito" ? st.serial : "";
-        const obs = st.tipo === "erro" || st.tipo === "vazio" || st.tipo === "conflito" ? st.msg : "";
-        return [
-          i.servicoGdis ?? "",
-          i.matricula,
-          i.colaborador,
-          i.tipoEquipamento,
-          i.serialAtual,
-          serialResultado,
-          rotulo[st.tipo],
-          obs,
-        ];
-      });
+    // Percorre o status (ordem de processamento), não a lista visível.
+    const linhas = Object.entries(status).map(([medidorId, st]) => {
+      const i = cadastroRef.current.get(medidorId);
+      const serialResultado =
+        st.tipo === "gravado" || st.tipo === "encontrado" || st.tipo === "conflito" ? st.serial : "";
+      const obs = st.tipo === "erro" || st.tipo === "vazio" || st.tipo === "conflito" ? st.msg : "";
+      return [
+        i?.servicoGdis ?? "",
+        i?.matricula ?? "",
+        i?.colaborador ?? "",
+        i?.tipoEquipamento ?? "",
+        i?.serialAtual ?? "",
+        serialResultado,
+        rotulo[st.tipo],
+        obs,
+      ];
+    });
 
     const cabecalho = [
       "Serviço GDIS",
@@ -335,6 +351,7 @@ export default function AutomacaoGdisPage() {
   const qtdGravados = Object.values(status).filter((s) => s.tipo === "gravado").length;
   const qtdFalhas = Object.values(status).filter((s) => s.tipo === "erro" || s.tipo === "vazio").length;
   const qtdConflitos = Object.values(status).filter((s) => s.tipo === "conflito").length;
+  const qtdProcessados = Object.keys(status).length;
 
   return (
     <div className="flex flex-col h-full">
@@ -352,6 +369,21 @@ export default function AutomacaoGdisPage() {
             <p className="text-lg font-black text-slate-900 leading-tight">{itens.length}</p>
           </div>
         )}
+        <button
+          type="button"
+          onClick={baixarRelatorio}
+          disabled={qtdProcessados === 0}
+          title={
+            qtdProcessados === 0
+              ? "Nenhuma linha processada ainda"
+              : `Baixar relatório de ${qtdProcessados} linha(s)`
+          }
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <Download size={13} />
+          Relatório
+          {qtdProcessados > 0 && <span className="opacity-75">({qtdProcessados})</span>}
+        </button>
         <button
           type="button"
           onClick={load}
@@ -473,14 +505,6 @@ export default function AutomacaoGdisPage() {
               </span>
               <button
                 type="button"
-                onClick={baixarRelatorio}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors"
-              >
-                <Download size={12} />
-                Baixar relatório
-              </button>
-              <button
-                type="button"
                 onClick={() => {
                   setEtapa("idle");
                   setSelecionados([]);
@@ -569,25 +593,40 @@ export default function AutomacaoGdisPage() {
               <span className="text-xs text-slate-600">
                 <strong className="text-slate-900">{selecionados.length}</strong> selecionado(s) de {itens.length}
               </span>
-              <button
-                type="button"
-                onClick={togglePagina}
-                disabled={rodando}
-                className="ml-auto text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-40"
-              >
-                {paginaToda ? "Desmarcar esta página" : "Selecionar esta página"}
-              </button>
-              <span className="text-slate-300">|</span>
-              <button
-                type="button"
-                onClick={toggleTodos}
-                disabled={rodando}
-                className="text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-40"
-              >
-                {itens.every((i) => selecionados.includes(i.medidorId))
-                  ? "Desmarcar todos"
-                  : `Selecionar todos (${itens.length})`}
-              </button>
+
+              <div className="ml-auto flex items-center gap-2">
+                <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Selecionar</span>
+                {[10, 100, 1000].map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => selecionarPrimeiros(n)}
+                    disabled={rodando}
+                    title={`Primeiros ${n} ainda não processados`}
+                    className="px-2.5 py-1 bg-white border border-slate-300 text-xs font-bold text-slate-700 rounded-lg hover:bg-slate-100 hover:border-slate-400 transition-colors disabled:opacity-40"
+                  >
+                    {n}
+                  </button>
+                ))}
+                <span className="text-slate-300">|</span>
+                <button
+                  type="button"
+                  onClick={togglePagina}
+                  disabled={rodando}
+                  className="text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-40"
+                >
+                  {paginaToda ? "Desmarcar página" : "Esta página"}
+                </button>
+                <span className="text-slate-300">|</span>
+                <button
+                  type="button"
+                  onClick={toggleTodos}
+                  disabled={rodando}
+                  className="text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-40"
+                >
+                  {itens.every((i) => selecionados.includes(i.medidorId)) ? "Desmarcar todos" : `Todos (${itens.length})`}
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">

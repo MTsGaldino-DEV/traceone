@@ -13,11 +13,15 @@ import {
   Square,
   Terminal,
   Zap,
+  Download,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 import { getRecuperacaoPendente, resolverRecuperacaoPendente } from "../../../../lib/api";
 import type { RecuperacaoPendenteItem } from "../../../../lib/api";
 
 const CONECTOR_URL = "http://localhost:3334";
+const TAMANHO_PAGINA = 50;
 
 // ─── Tipos locais ─────────────────────────────────────────────────────────────
 type StatusLinha =
@@ -26,6 +30,7 @@ type StatusLinha =
   | { tipo: "encontrado"; serial: string; matExecutor?: string }
   | { tipo: "vazio"; msg: string }
   | { tipo: "erro"; msg: string }
+  | { tipo: "conflito"; serial: string; msg: string }
   | { tipo: "gravado"; serial: string };
 
 interface LogEntry {
@@ -46,6 +51,7 @@ export default function AutomacaoGdisPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [selecionados, setSelecionados] = useState<string[]>([]);
+  const [pagina, setPagina] = useState(1);
   const [status, setStatus] = useState<Record<string, StatusLinha>>({});
   const [seriaisEditados, setSeriaisEditados] = useState<Record<string, string>>({});
 
@@ -81,6 +87,7 @@ export default function AutomacaoGdisPage() {
         (i) => i.servicoGdis && i.tipoEquipamento.toUpperCase().startsWith("MEDID")
       );
       setItens(candidatos);
+      setPagina(1);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao carregar.");
     } finally {
@@ -120,7 +127,13 @@ export default function AutomacaoGdisPage() {
         setStatus((prev) => ({ ...prev, [medidorId]: { tipo: "gravado", serial } }));
         addLog("sucesso", `Serial ${serial} gravado no medidor.`);
       } catch (err) {
-        addLog("erro", `Falha ao gravar ${serial}: ${err instanceof Error ? err.message : "erro"}`);
+        const msg = err instanceof Error ? err.message : "erro";
+        if (msg.includes("CONFLITO_SERIAL")) {
+          setStatus((prev) => ({ ...prev, [medidorId]: { tipo: "conflito", serial, msg } }));
+          addLog("aviso", `Conflito: serial ${serial} já pertence a outro medidor. Linha ficou pendente de revisão manual.`);
+        } else {
+          addLog("erro", `Falha ao gravar ${serial}: ${msg}`);
+        }
       }
     },
     [addLog]
@@ -240,16 +253,87 @@ export default function AutomacaoGdisPage() {
   const toggleSelecionado = (id: string) =>
     setSelecionados((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
+  const totalPaginas = Math.max(1, Math.ceil(itens.length / TAMANHO_PAGINA));
+  const itensPagina = itens.slice((pagina - 1) * TAMANHO_PAGINA, pagina * TAMANHO_PAGINA);
+  const paginaToda = itensPagina.every((i) => selecionados.includes(i.medidorId));
+
+  const togglePagina = () => {
+    const idsPagina = itensPagina.map((i) => i.medidorId);
+    setSelecionados((prev) =>
+      paginaToda
+        ? prev.filter((id) => !idsPagina.includes(id))
+        : [...new Set([...prev, ...idsPagina])]
+    );
+  };
+
   const toggleTodos = () => {
-    const visiveis = itens.map((i) => i.medidorId);
-    const todosMarcados = visiveis.every((id) => selecionados.includes(id));
-    setSelecionados(todosMarcados ? [] : visiveis);
+    const todosIds = itens.map((i) => i.medidorId);
+    setSelecionados(todosIds.every((id) => selecionados.includes(id)) ? [] : todosIds);
+  };
+
+  // ── Relatório do lote ──────────────────────────────────────────────────────
+  const baixarRelatorio = () => {
+    const rotulo: Record<StatusLinha["tipo"], string> = {
+      pendente: "Não consultado",
+      consultando: "Interrompido durante consulta",
+      encontrado: "Encontrado (não gravado)",
+      vazio: "Sem serial no GDIS",
+      erro: "Erro na consulta",
+      conflito: "Conflito — serial já existe em outro medidor",
+      gravado: "Gravado",
+    };
+
+    const linhas = itens
+      .filter((i) => status[i.medidorId])
+      .map((i) => {
+        const st = status[i.medidorId];
+        const serialResultado =
+          st.tipo === "gravado" || st.tipo === "encontrado" || st.tipo === "conflito" ? st.serial : "";
+        const obs = st.tipo === "erro" || st.tipo === "vazio" || st.tipo === "conflito" ? st.msg : "";
+        return [
+          i.servicoGdis ?? "",
+          i.matricula,
+          i.colaborador,
+          i.tipoEquipamento,
+          i.serialAtual,
+          serialResultado,
+          rotulo[st.tipo],
+          obs,
+        ];
+      });
+
+    const cabecalho = [
+      "Serviço GDIS",
+      "Matrícula",
+      "Colaborador",
+      "Equipamento",
+      "Serial anterior",
+      "Serial encontrado",
+      "Resultado",
+      "Observação",
+    ];
+
+    const escapar = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+    const csv =
+      "﻿" + [cabecalho, ...linhas].map((l) => l.map(escapar).join(";")).join("\r\n");
+
+    const agora = new Date();
+    const carimbo = `${agora.toISOString().slice(0, 10)}_${String(agora.getHours()).padStart(2, "0")}${String(
+      agora.getMinutes()
+    ).padStart(2, "0")}`;
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `relatorio-automacao-gdis_${carimbo}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const rodando = etapa === "rodando";
   const qtdEncontrados = Object.values(status).filter((s) => s.tipo === "encontrado").length;
   const qtdGravados = Object.values(status).filter((s) => s.tipo === "gravado").length;
   const qtdFalhas = Object.values(status).filter((s) => s.tipo === "erro" || s.tipo === "vazio").length;
+  const qtdConflitos = Object.values(status).filter((s) => s.tipo === "conflito").length;
 
   return (
     <div className="flex flex-col h-full">
@@ -366,7 +450,7 @@ export default function AutomacaoGdisPage() {
             <div className="flex items-center gap-3">
               <Loader2 size={14} className="animate-spin text-blue-600" />
               <span className="text-xs text-slate-600 flex-1">
-                Consultando… {qtdEncontrados} encontrado(s), {qtdGravados} gravado(s), {qtdFalhas} sem resultado.
+                Consultando… {qtdEncontrados} encontrado(s), {qtdGravados} gravado(s), {qtdConflitos} conflito(s), {qtdFalhas} sem resultado.
               </span>
               <button
                 type="button"
@@ -383,8 +467,17 @@ export default function AutomacaoGdisPage() {
             <div className="flex items-center gap-3">
               <CheckCircle2 size={14} className="text-emerald-600" />
               <span className="text-xs text-slate-600 flex-1">
-                Finalizado: {qtdEncontrados} encontrado(s), {qtdGravados} gravado(s), {qtdFalhas} sem resultado.
+                Finalizado: {qtdEncontrados} encontrado(s), {qtdGravados} gravado(s), {qtdConflitos} conflito(s),{" "}
+                {qtdFalhas} sem resultado.
               </span>
+              <button
+                type="button"
+                onClick={baixarRelatorio}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors"
+              >
+                <Download size={12} />
+                Baixar relatório
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -472,17 +565,28 @@ export default function AutomacaoGdisPage() {
 
         {!loading && itens.length > 0 && (
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-3">
+            <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-3 flex-wrap">
               <span className="text-xs text-slate-600">
                 <strong className="text-slate-900">{selecionados.length}</strong> selecionado(s) de {itens.length}
               </span>
               <button
                 type="button"
-                onClick={toggleTodos}
+                onClick={togglePagina}
                 disabled={rodando}
                 className="ml-auto text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-40"
               >
-                {itens.every((i) => selecionados.includes(i.medidorId)) ? "Desmarcar todos" : "Selecionar todos"}
+                {paginaToda ? "Desmarcar esta página" : "Selecionar esta página"}
+              </button>
+              <span className="text-slate-300">|</span>
+              <button
+                type="button"
+                onClick={toggleTodos}
+                disabled={rodando}
+                className="text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-40"
+              >
+                {itens.every((i) => selecionados.includes(i.medidorId))
+                  ? "Desmarcar todos"
+                  : `Selecionar todos (${itens.length})`}
               </button>
             </div>
 
@@ -499,7 +603,7 @@ export default function AutomacaoGdisPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {itens.map((item) => {
+                  {itensPagina.map((item) => {
                     const st = status[item.medidorId];
                     const sel = selecionados.includes(item.medidorId);
                     const serialEditado = seriaisEditados[item.medidorId] ?? "";
@@ -539,6 +643,14 @@ export default function AutomacaoGdisPage() {
                               <Loader2 size={12} className="animate-spin" />
                               Consultando…
                             </span>
+                          ) : st?.tipo === "conflito" ? (
+                            <span
+                              className="inline-flex items-center gap-1.5 px-2 py-1 bg-red-50 border border-red-200 text-red-700 text-[11px] font-bold rounded-lg"
+                              title={st.msg}
+                            >
+                              <AlertTriangle size={12} />
+                              Conflito: {st.serial} já existe
+                            </span>
                           ) : st?.tipo === "erro" || st?.tipo === "vazio" ? (
                             <span className="text-[11px] text-amber-700" title={st.msg}>
                               {st.tipo === "vazio" ? "Sem serial no GDIS" : "Erro"}
@@ -571,6 +683,51 @@ export default function AutomacaoGdisPage() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex items-center gap-3">
+              <span className="text-xs text-slate-500">
+                {(pagina - 1) * TAMANHO_PAGINA + 1}–{Math.min(pagina * TAMANHO_PAGINA, itens.length)} de {itens.length}
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPagina(1)}
+                  disabled={pagina === 1}
+                  className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
+                >
+                  «
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                  disabled={pagina === 1}
+                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
+                >
+                  <ChevronLeft size={13} />
+                  Anterior
+                </button>
+                <span className="text-xs text-slate-600 font-semibold tabular-nums">
+                  {pagina} / {totalPaginas}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+                  disabled={pagina >= totalPaginas}
+                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
+                >
+                  Próxima
+                  <ChevronRight size={13} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPagina(totalPaginas)}
+                  disabled={pagina >= totalPaginas}
+                  className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
+                >
+                  »
+                </button>
+              </div>
             </div>
           </div>
         )}

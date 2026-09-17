@@ -936,6 +936,89 @@ export async function resolverRecuperacaoPendente(medidorId: string, serialCorre
   if (error) throw new Error(error.message);
 }
 
+// ─── Histórico das rodadas da Automação GDIS (ADMIN) ─────────────────────────
+
+export type ResultadoAutomacao = 'ENCONTRADO' | 'GRAVADO' | 'CONFLITO' | 'VAZIO' | 'ERRO';
+
+export interface AutomacaoLogEntrada {
+  execucaoId: string;
+  medidorId: string;
+  servicoGdis: string | null;
+  matricula: string;
+  colaborador: string;
+  tipoEquipamento: string;
+  serialAnterior: string;
+  serialEncontrado: string | null;
+  resultado: ResultadoAutomacao;
+  observacao: string | null;
+  modo: 'AUTOMATICO' | 'MANUAL';
+}
+
+export interface AutomacaoExecucao {
+  execucaoId: string;
+  inicio: string;
+  fim: string;
+  total: number;
+  gravados: number;
+  conflitos: number;
+  vazios: number;
+  erros: number;
+  encontrados: number;
+  executadoPor: string;
+}
+
+export interface AutomacaoExecucaoItem {
+  servicoGdis: string | null;
+  matricula: string | null;
+  colaborador: string | null;
+  tipoEquipamento: string | null;
+  serialAnterior: string | null;
+  serialEncontrado: string | null;
+  resultado: ResultadoAutomacao;
+  observacao: string | null;
+  modo: 'AUTOMATICO' | 'MANUAL';
+  criadoEm: string;
+}
+
+/**
+ * Registra o desfecho de uma linha. O mesmo medidor na mesma rodada evolui de
+ * ENCONTRADO para GRAVADO/CONFLITO em vez de virar duas linhas.
+ */
+export async function registrarAutomacaoLog(entrada: AutomacaoLogEntrada): Promise<void> {
+  const { error } = await supabase.from('automacao_gdis_log').upsert(
+    {
+      execucao_id: entrada.execucaoId,
+      medidor_id: entrada.medidorId,
+      servico_gdis: entrada.servicoGdis,
+      matricula: entrada.matricula,
+      colaborador: entrada.colaborador,
+      tipo_equipamento: entrada.tipoEquipamento,
+      serial_anterior: entrada.serialAnterior,
+      serial_encontrado: entrada.serialEncontrado,
+      resultado: entrada.resultado,
+      observacao: entrada.observacao,
+      modo: entrada.modo,
+      atualizado_em: new Date().toISOString(),
+    },
+    { onConflict: 'execucao_id,medidor_id' }
+  );
+  if (error) throw new Error(error.message);
+}
+
+export async function getAutomacaoExecucoes(): Promise<AutomacaoExecucao[]> {
+  const { data, error } = await supabase.rpc('get_automacao_execucoes');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as AutomacaoExecucao[];
+}
+
+export async function getAutomacaoExecucaoItens(execucaoId: string): Promise<AutomacaoExecucaoItem[]> {
+  const { data, error } = await supabase.rpc('get_automacao_execucao_itens', {
+    p_execucao_id: execucaoId,
+  });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as AutomacaoExecucaoItem[];
+}
+
 export interface MedidorAcima45Dias {
   matricula: string;
   colaborador: string;

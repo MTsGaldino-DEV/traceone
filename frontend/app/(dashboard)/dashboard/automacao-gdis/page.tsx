@@ -16,12 +16,59 @@ import {
   Download,
   ChevronLeft,
   ChevronRight,
+  History,
 } from "lucide-react";
-import { getRecuperacaoPendente, resolverRecuperacaoPendente } from "../../../../lib/api";
-import type { RecuperacaoPendenteItem } from "../../../../lib/api";
+import {
+  getRecuperacaoPendente,
+  resolverRecuperacaoPendente,
+  registrarAutomacaoLog,
+  getAutomacaoExecucoes,
+  getAutomacaoExecucaoItens,
+} from "../../../../lib/api";
+import type {
+  RecuperacaoPendenteItem,
+  AutomacaoExecucao,
+  ResultadoAutomacao,
+} from "../../../../lib/api";
 
 const CONECTOR_URL = "http://localhost:3334";
 const TAMANHO_PAGINA = 50;
+
+const COLUNAS_BASE = [
+  "Serviço GDIS",
+  "Matrícula",
+  "Colaborador",
+  "Equipamento",
+  "Serial anterior",
+  "Serial encontrado",
+  "Resultado",
+  "Observação",
+];
+
+const ROTULO_RESULTADO: Record<ResultadoAutomacao, string> = {
+  ENCONTRADO: "Encontrado (não gravado)",
+  GRAVADO: "Gravado",
+  CONFLITO: "Conflito — serial já existe em outro medidor",
+  VAZIO: "Sem serial no GDIS",
+  ERRO: "Erro na consulta",
+};
+
+function baixarCsv(cabecalho: string[], linhas: string[][], nomeArquivo: string) {
+  const escapar = (v: string) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+  // BOM pro Excel abrir os acentos certo; ";" é o separador que ele espera em pt-BR.
+  const csv = "﻿" + [cabecalho, ...linhas].map((l) => l.map(escapar).join(";")).join("\r\n");
+  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nomeArquivo;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function carimboArquivo(d: Date) {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}_${p(d.getHours())}${p(d.getMinutes())}`;
+}
 
 // ─── Tipos locais ─────────────────────────────────────────────────────────────
 type StatusLinha =
@@ -69,6 +116,13 @@ export default function AutomacaoGdisPage() {
   // seguinte, e sem isso o relatório perderia exatamente os sucessos.
   const cadastroRef = useRef(new Map<string, RecuperacaoPendenteItem>());
 
+  // Identifica a rodada atual no banco. Criado no início do lote, ou sob
+  // demanda quando alguém grava na mão sem ter disparado um lote.
+  const execucaoIdRef = useRef<string | null>(null);
+
+  const [execucoes, setExecucoes] = useState<AutomacaoExecucao[]>([]);
+  const [baixandoId, setBaixandoId] = useState<string | null>(null);
+
   // O handler do SSE é criado uma vez; o ref mantém o valor atual do toggle
   // acessível lá dentro sem recriar a conexão a cada troca.
   const modoAutomaticoRef = useRef(modoAutomatico);
@@ -100,9 +154,18 @@ export default function AutomacaoGdisPage() {
     }
   }, []);
 
+  const carregarExecucoes = useCallback(async () => {
+    try {
+      setExecucoes(await getAutomacaoExecucoes());
+    } catch {
+      // Histórico é acessório: se falhar, a automação continua utilizável.
+    }
+  }, []);
+
   useEffect(() => {
     load();
-  }, [load]);
+    carregarExecucoes();
+  }, [load, carregarExecucoes]);
 
   // ── Ping do conector ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -126,23 +189,59 @@ export default function AutomacaoGdisPage() {
     if (logAberto && box) box.scrollTop = box.scrollHeight;
   }, [logs, logAberto]);
 
+  // Grava o desfecho da linha no banco. Falha aqui não derruba o lote — o
+  // relatório da sessão continua valendo, só o histórico fica incompleto.
+  const registrarLog = useCallback(
+    async (
+      medidorId: string,
+      resultado: ResultadoAutomacao,
+      extra: { serial?: string | null; obs?: string | null; modo?: "AUTOMATICO" | "MANUAL" } = {}
+    ) => {
+      const item = cadastroRef.current.get(medidorId);
+      if (!item) return;
+      if (!execucaoIdRef.current) execucaoIdRef.current = crypto.randomUUID();
+
+      try {
+        await registrarAutomacaoLog({
+          execucaoId: execucaoIdRef.current,
+          medidorId,
+          servicoGdis: item.servicoGdis,
+          matricula: item.matricula,
+          colaborador: item.colaborador,
+          tipoEquipamento: item.tipoEquipamento,
+          serialAnterior: item.serialAtual,
+          serialEncontrado: extra.serial ?? null,
+          resultado,
+          observacao: extra.obs ?? null,
+          modo: extra.modo ?? "AUTOMATICO",
+        });
+      } catch (err) {
+        addLog("aviso", `Log não salvo: ${err instanceof Error ? err.message : "erro"}`);
+      }
+    },
+    [addLog]
+  );
+
   const gravarSerial = useCallback(
-    async (medidorId: string, serial: string) => {
+    async (medidorId: string, serial: string, modo: "AUTOMATICO" | "MANUAL") => {
       try {
         await resolverRecuperacaoPendente(medidorId, serial);
         setStatus((prev) => ({ ...prev, [medidorId]: { tipo: "gravado", serial } }));
         addLog("sucesso", `Serial ${serial} gravado no medidor.`);
+        registrarLog(medidorId, "GRAVADO", { serial, modo });
       } catch (err) {
         const msg = err instanceof Error ? err.message : "erro";
         if (msg.includes("CONFLITO_SERIAL")) {
           setStatus((prev) => ({ ...prev, [medidorId]: { tipo: "conflito", serial, msg } }));
           addLog("aviso", `Conflito: serial ${serial} já pertence a outro medidor. Linha ficou pendente de revisão manual.`);
+          registrarLog(medidorId, "CONFLITO", { serial, obs: msg, modo });
         } else {
           addLog("erro", `Falha ao gravar ${serial}: ${msg}`);
+          registrarLog(medidorId, "ERRO", { serial, obs: msg, modo });
         }
       }
     },
-    [addLog]
+    [addLog, registrarLog]
   );
 
   // ── SSE do conector ────────────────────────────────────────────────────────
@@ -170,15 +269,21 @@ export default function AutomacaoGdisPage() {
           }));
           setSeriaisEditados((prev) => ({ ...prev, [ev.medidorId]: ev.serial }));
           addLog("sucesso", `Serviço ${ev.servicoGdis} → ${ev.serial}`);
-          if (modoAutomaticoRef.current) gravarSerial(ev.medidorId, ev.serial);
+          if (modoAutomaticoRef.current) {
+            gravarSerial(ev.medidorId, ev.serial, "AUTOMATICO");
+          } else {
+            registrarLog(ev.medidorId, "ENCONTRADO", { serial: ev.serial });
+          }
           break;
         case "vazio":
           setStatus((prev) => ({ ...prev, [ev.medidorId]: { tipo: "vazio", msg: ev.msg } }));
           addLog("aviso", `Serviço ${ev.servicoGdis}: ${ev.msg}`);
+          registrarLog(ev.medidorId, "VAZIO", { obs: ev.msg });
           break;
         case "erro":
           setStatus((prev) => ({ ...prev, [ev.medidorId]: { tipo: "erro", msg: ev.msg } }));
           addLog("erro", `Serviço ${ev.servicoGdis}: ${ev.msg}`);
+          registrarLog(ev.medidorId, "ERRO", { obs: ev.msg });
           break;
         case "sessao_perdida":
           addLog("erro", ev.msg);
@@ -191,6 +296,7 @@ export default function AutomacaoGdisPage() {
         case "fim_lote":
           addLog("info", "Lote finalizado.");
           setEtapa("finalizado");
+          carregarExecucoes();
           es.close();
           break;
       }
@@ -199,7 +305,7 @@ export default function AutomacaoGdisPage() {
     es.onerror = () => addLog("aviso", "Conexão de log interrompida.");
 
     return () => es.close();
-  }, [etapa, addLog, gravarSerial]);
+  }, [etapa, addLog, gravarSerial, registrarLog, carregarExecucoes]);
 
   // ── Ações ──────────────────────────────────────────────────────────────────
   const iniciarSessao = async () => {
@@ -233,6 +339,7 @@ export default function AutomacaoGdisPage() {
         return;
       }
       addLog("sucesso", "Sessão confirmada.");
+      execucaoIdRef.current = crypto.randomUUID();
       setEtapa("rodando");
 
       const lista = selecionados.map((medidorId) => {
@@ -319,31 +426,35 @@ export default function AutomacaoGdisPage() {
       ];
     });
 
-    const cabecalho = [
-      "Serviço GDIS",
-      "Matrícula",
-      "Colaborador",
-      "Equipamento",
-      "Serial anterior",
-      "Serial encontrado",
-      "Resultado",
-      "Observação",
-    ];
+    baixarCsv(COLUNAS_BASE, linhas, `relatorio-automacao-gdis_${carimboArquivo(new Date())}.csv`);
+  };
 
-    const escapar = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
-    const csv =
-      "﻿" + [cabecalho, ...linhas].map((l) => l.map(escapar).join(";")).join("\r\n");
-
-    const agora = new Date();
-    const carimbo = `${agora.toISOString().slice(0, 10)}_${String(agora.getHours()).padStart(2, "0")}${String(
-      agora.getMinutes()
-    ).padStart(2, "0")}`;
-    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `relatorio-automacao-gdis_${carimbo}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const baixarExecucao = async (execucaoId: string, inicio: string) => {
+    setBaixandoId(execucaoId);
+    try {
+      const itens = await getAutomacaoExecucaoItens(execucaoId);
+      const linhas = itens.map((i) => [
+        i.servicoGdis ?? "",
+        i.matricula ?? "",
+        i.colaborador ?? "",
+        i.tipoEquipamento ?? "",
+        i.serialAnterior ?? "",
+        i.serialEncontrado ?? "",
+        ROTULO_RESULTADO[i.resultado] ?? i.resultado,
+        i.observacao ?? "",
+        i.modo === "MANUAL" ? "Manual" : "Automático",
+        new Date(i.criadoEm).toLocaleString("pt-BR"),
+      ]);
+      baixarCsv(
+        [...COLUNAS_BASE, "Modo", "Data/Hora"],
+        linhas,
+        `relatorio-automacao-gdis_${carimboArquivo(new Date(inicio))}.csv`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Não consegui baixar essa rodada.");
+    } finally {
+      setBaixandoId(null);
+    }
   };
 
   const rodando = etapa === "rodando";
@@ -707,7 +818,7 @@ export default function AutomacaoGdisPage() {
                               />
                               <button
                                 type="button"
-                                onClick={() => gravarSerial(item.medidorId, serialEditado.trim())}
+                                onClick={() => gravarSerial(item.medidorId, serialEditado.trim(), "MANUAL")}
                                 disabled={!serialEditado.trim()}
                                 title="Gravar este serial"
                                 className="flex items-center gap-1 px-2.5 py-1 bg-[#1e3a5f] text-white text-xs font-bold rounded-lg hover:bg-[#2d5282] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
@@ -767,6 +878,64 @@ export default function AutomacaoGdisPage() {
                   »
                 </button>
               </div>
+            </div>
+          </div>
+        )}
+
+        {/* ── Rodadas anteriores ── */}
+        {execucoes.length > 0 && (
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shrink-0">
+            <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
+              <History size={13} className="text-slate-400" />
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wide">Rodadas anteriores</span>
+              <span className="ml-auto text-[11px] text-slate-400">{execucoes.length}</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Quando</th>
+                    <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Quem</th>
+                    <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Resultado</th>
+                    <th className="w-10 px-4 py-2"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {execucoes.map((e) => (
+                    <tr key={e.execucaoId} className="border-b border-slate-50 last:border-0 hover:bg-slate-50">
+                      <td className="px-4 py-2.5 text-xs text-slate-700 whitespace-nowrap">
+                        {new Date(e.inicio).toLocaleString("pt-BR")}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[160px] truncate">{e.executadoPor}</td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex items-center gap-2 flex-wrap text-[11px] font-bold">
+                          <span className="text-slate-500">{e.total} linha(s)</span>
+                          {e.gravados > 0 && <span className="text-emerald-700">{e.gravados} gravado(s)</span>}
+                          {e.conflitos > 0 && <span className="text-red-700">{e.conflitos} conflito(s)</span>}
+                          {e.vazios > 0 && <span className="text-amber-700">{e.vazios} sem serial</span>}
+                          {e.erros > 0 && <span className="text-amber-700">{e.erros} erro(s)</span>}
+                          {e.encontrados > 0 && <span className="text-blue-700">{e.encontrados} não gravado(s)</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <button
+                          type="button"
+                          onClick={() => baixarExecucao(e.execucaoId, e.inicio)}
+                          disabled={baixandoId === e.execucaoId}
+                          title="Baixar CSV desta rodada"
+                          className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-40"
+                        >
+                          {baixandoId === e.execucaoId ? (
+                            <Loader2 size={14} className="animate-spin" />
+                          ) : (
+                            <Download size={14} />
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}

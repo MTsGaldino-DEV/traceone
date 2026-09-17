@@ -13,6 +13,7 @@ import {
   Users,
   Contact,
   ShieldAlert,
+  Bot,
   LogOut,
   ChevronRight,
   KeyRound,
@@ -41,6 +42,7 @@ const gestaoNavItems = [
 // Visível só pra ADMIN
 const adminNavItems = [
   { label: "Recuperação de Dados", href: "/dashboard/recuperacao-incidente", icon: ShieldAlert },
+  { label: "Automação GDIS", href: "/dashboard/automacao-gdis", icon: Bot },
 ];
 
 export default function DashboardLayout({

@@ -63,7 +63,7 @@ export default function AutomacaoGdisPage() {
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [logAberto, setLogAberto] = useState(true);
-  const logsEndRef = useRef<HTMLDivElement>(null);
+  const logBoxRef = useRef<HTMLDivElement>(null);
 
   // O handler do SSE é criado uma vez; o ref mantém o valor atual do toggle
   // acessível lá dentro sem recriar a conexão a cada troca.
@@ -115,9 +115,10 @@ export default function AutomacaoGdisPage() {
     return () => clearInterval(t);
   }, []);
 
-  // ── Auto-scroll do log ─────────────────────────────────────────────────────
+  // Rola só a caixa do log. scrollIntoView arrastaria a página inteira junto.
   useEffect(() => {
-    if (logAberto) logsEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const box = logBoxRef.current;
+    if (logAberto && box) box.scrollTop = box.scrollHeight;
   }, [logs, logAberto]);
 
   const gravarSerial = useCallback(
@@ -365,7 +366,7 @@ export default function AutomacaoGdisPage() {
       <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4">
         {/* ── Banner do conector + controles ── */}
         <div
-          className={`bg-white border rounded-xl p-4 flex flex-col gap-3 ${
+          className={`bg-white border rounded-xl p-4 flex flex-col gap-3 shrink-0 ${
             conectorOk ? "border-l-4 border-l-emerald-500 border-slate-200" : "border-l-4 border-l-amber-500 border-slate-200"
           }`}
         >
@@ -494,7 +495,7 @@ export default function AutomacaoGdisPage() {
         </div>
 
         {/* ── Log ── */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden shrink-0">
           <button
             type="button"
             onClick={() => setLogAberto((v) => !v)}
@@ -505,7 +506,7 @@ export default function AutomacaoGdisPage() {
             <span className="ml-auto text-[11px] text-slate-600">{logs.length} linhas</span>
           </button>
           {logAberto && (
-            <div className="max-h-64 overflow-y-auto py-2 font-mono text-[11px]">
+            <div ref={logBoxRef} className="max-h-64 overflow-y-auto py-2 font-mono text-[11px]">
               {logs.length === 0 ? (
                 <p className="px-4 py-3 text-slate-600">Nenhum log ainda.</p>
               ) : (
@@ -530,14 +531,13 @@ export default function AutomacaoGdisPage() {
                   </div>
                 ))
               )}
-              <div ref={logsEndRef} />
             </div>
           )}
         </div>
 
         {/* ── Erro / loading / lista ── */}
         {error && (
-          <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-800">
+          <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-800 shrink-0">
             <AlertTriangle size={16} className="text-red-500 shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-sm font-bold">Erro ao carregar</p>
@@ -564,7 +564,7 @@ export default function AutomacaoGdisPage() {
         )}
 
         {!loading && itens.length > 0 && (
-          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shrink-0">
             <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-3 flex-wrap">
               <span className="text-xs text-slate-600">
                 <strong className="text-slate-900">{selecionados.length}</strong> selecionado(s) de {itens.length}

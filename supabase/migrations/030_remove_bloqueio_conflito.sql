@@ -6,7 +6,10 @@
 -- se havia duplicata) em vez de bloquear.
 -- =============================================================================
 
-CREATE OR REPLACE FUNCTION resolver_recuperacao_pendente(p_medidor_id UUID, p_serial_correto TEXT)
+-- CREATE OR REPLACE não deixa mudar o tipo de retorno (era VOID).
+DROP FUNCTION IF EXISTS resolver_recuperacao_pendente(UUID, TEXT);
+
+CREATE FUNCTION resolver_recuperacao_pendente(p_medidor_id UUID, p_serial_correto TEXT)
 RETURNS BOOLEAN -- true = esse serial já existia em outra linha (gravou mesmo assim)
 LANGUAGE plpgsql SECURITY INVOKER
 AS $$
@@ -28,3 +31,7 @@ BEGIN
   RETURN v_duplicado;
 END;
 $$;
+
+-- DROP apaga as permissões antigas; reconceder.
+REVOKE ALL ON FUNCTION resolver_recuperacao_pendente(UUID, TEXT) FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION resolver_recuperacao_pendente(UUID, TEXT) TO authenticated;

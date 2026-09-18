@@ -86,7 +86,9 @@ function parseDateGdis(raw: unknown): string | null {
 }
 
 function parseGdisWorkbook(buffer: ArrayBuffer): ParseResult {
-  const wb = XLSX.read(buffer, { type: "array" });
+  // raw: sem isso o SheetJS le "12/08/2026" de um CSV como MM/DD (12 de agosto
+  // vira 8 de dezembro). Mantem o valor original e deixa o parse com a gente.
+  const wb = XLSX.read(buffer, { type: "array", raw: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as unknown[][];
   const errors: string[] = [];
@@ -164,10 +166,22 @@ interface SyncReport {
   invalidas: AtribItem[];     // matrícula não existe no sistema
 }
 
-function parseDateAtrib(s: string): string | null {
-  if (!s) return null;
-  const dmy = s.trim().match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
+/**
+ * Data de atribuicao do SAP. Aceita DD/MM/AAAA (como vem no CSV) e o serial de
+ * data do Excel (como vem num .xlsx de verdade). Nunca interpreta MM/DD: no
+ * CSV o dia vem primeiro, e tratar 12/08 como dezembro joga a data no futuro.
+ */
+function parseDateAtrib(raw: unknown): string | null {
+  if (raw === null || raw === undefined || raw === "") return null;
+  if (typeof raw === "number") {
+    if (!dataExcelPlausivel(raw)) return null;
+    return new Date(Math.round((raw - 25569) * 864e5)).toISOString().slice(0, 10);
+  }
+  const s = String(raw).trim();
+  const dmy = s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
   if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}`;
+  const ymd = s.match(/^\d{4}-\d{2}-\d{2}/);
+  if (ymd) return s.slice(0, 10);
   return null;
 }
 
@@ -306,7 +320,7 @@ function parsePCWorkbook(
   colunaSerial: string
 ): ParsePCResult {
   // codepage 1252: o CSV exportado vem em Latin-1, não UTF-8
-  const wb = XLSX.read(buffer, { type: "array", codepage: 1252 });
+  const wb = XLSX.read(buffer, { type: "array", codepage: 1252, raw: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const data = XLSX.utils.sheet_to_json(ws, { header: 1 }) as unknown[][];
 
@@ -766,7 +780,8 @@ function AtribuicoesTab() {
     let planilhaRows: { serial: string; material: string; matricula: string | null; data: string | null }[];
     try {
       const buffer = await f.arrayBuffer();
-      const wb = XLSX.read(buffer, { type: "array" });
+      // raw: ver nota em parseGdisWorkbook — evita a leitura MM/DD de datas
+      const wb = XLSX.read(buffer, { type: "array", raw: true });
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rawData = XLSX.utils.sheet_to_json(ws, { header: 1 }) as unknown[][];
 
@@ -778,12 +793,11 @@ function AtribuicoesTab() {
         if (!serial) continue;
         const material = row[1] ? String(row[1]).trim() : "";
         const recebedor = row[10] ? String(row[10]).trim().toLowerCase() : null;
-        const dataRaw = row[11] ? String(row[11]).trim() : "";
         planilhaRows.push({
           serial,
           material,
           matricula: recebedor || null,
-          data: parseDateAtrib(dataRaw),
+          data: parseDateAtrib(row[11]),
         });
       }
     } catch (err) {

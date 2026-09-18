@@ -310,11 +310,80 @@ export async function deleteMedidor(id: string): Promise<void> {
 
 // ─── Serviços Report ──────────────────────────────────────────────────────────
 
-export async function importServicos(rows: Omit<ServicoReport, 'imported_at'>[]): Promise<void> {
+export interface MatriculaNaoCadastrada {
+  matricula: string;
+  nome?: string;
+}
+
+/** Linha do relatorio GDIS. `nome` vem da planilha so para exibicao e nao e gravado. */
+export type ServicoImportInput = Omit<ServicoReport, 'imported_at'> & { nome?: string };
+
+export type ImportServicosResult =
+  | { ok: true; imported: number }
+  | { ok: false; matriculasNaoCadastradas: MatriculaNaoCadastrada[] };
+
+/**
+ * servicos_report.matricula e FK para colaboradores: uma unica matricula nao
+ * cadastrada derruba o lote inteiro no banco, com erro incompreensivel. Entao
+ * conferimos antes e, se faltar alguem, nao importamos nada e devolvemos quem
+ * falta para a tela pedir o cadastro.
+ */
+export async function importServicos(
+  rows: ServicoImportInput[]
+): Promise<ImportServicosResult> {
+  // guarda o nome da planilha por matricula, para identificar o colaborador no aviso
+  const nomePorMatricula = new Map<string, string>();
+  for (const r of rows) {
+    const mat = r.matricula?.trim().toLowerCase();
+    if (!mat) continue;
+    const nome = r.nome?.trim();
+    if (nome && !nomePorMatricula.has(mat)) nomePorMatricula.set(mat, nome);
+  }
+
+  const distintas = Array.from(
+    new Set(
+      rows
+        .map((r) => r.matricula?.trim().toLowerCase())
+        .filter((m): m is string => !!m)
+    )
+  );
+
+  const conhecidas = new Set<string>();
+  for (let i = 0; i < distintas.length; i += 200) {
+    const { data, error } = await supabase
+      .from('colaboradores')
+      .select('matricula')
+      .in('matricula', distintas.slice(i, i + 200));
+    if (error) throw new Error(error.message);
+    (data ?? []).forEach((c) => conhecidas.add((c as { matricula: string }).matricula));
+  }
+
+  const faltantes = distintas.filter((m) => !conhecidas.has(m));
+  if (faltantes.length > 0) {
+    return {
+      ok: false,
+      matriculasNaoCadastradas: faltantes.map((matricula) => ({
+        matricula,
+        nome: nomePorMatricula.get(matricula),
+      })),
+    };
+  }
+
+  // colunas explicitas: `nome` vem da planilha mas nao existe em servicos_report
+  const payload = rows.map((r) => ({
+    servico: r.servico,
+    matricula: r.matricula?.trim().toLowerCase() ?? null,
+    termino: r.termino,
+    cod_serv: r.cod_serv,
+    tipo_serv: r.tipo_serv,
+  }));
+
   const { error } = await supabase
     .from('servicos_report')
-    .upsert(rows, { onConflict: 'servico' });
+    .upsert(payload, { onConflict: 'servico' });
   if (error) throw new Error(error.message);
+
+  return { ok: true, imported: payload.length };
 }
 
 export async function getServicosConferencia(

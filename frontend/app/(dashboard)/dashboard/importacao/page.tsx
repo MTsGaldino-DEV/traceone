@@ -28,7 +28,7 @@ import {
   getMedidoresParaPC,
   importarPlanilhaPC,
 } from "../../../../lib/api";
-import type { MedidorParaSync, MedidorParaPC, ResultadoPC } from "../../../../lib/api";
+import type { MedidorParaSync, MedidorParaPC, ResultadoPC, MatriculaNaoCadastrada } from "../../../../lib/api";
 import type { Colaborador } from "../../../../lib/supabase";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -38,6 +38,7 @@ import type { Colaborador } from "../../../../lib/supabase";
 interface ParsedServico {
   servico: string;
   matricula?: string;
+  nome?: string;
   termino: string;
   cod_serv?: string;
   tipo_serv?: string;
@@ -52,6 +53,7 @@ const COL_ALIASES: Record<string, string> = {
   servico: "servico", "serviço": "servico", "servico gdis": "servico",
   "nº serviço": "servico", "numero servico": "servico", "n servico": "servico",
   matricula: "matricula", "matrícula": "matricula",
+  nome: "nome",
   termino: "termino", "término": "termino", "data conclusao": "termino",
   "data conclusão": "termino", conclusao: "termino", "conclusão": "termino",
   "cod serv": "cod_serv", cod_serv: "cod_serv", "codigo servico": "cod_serv",
@@ -129,11 +131,13 @@ function parseGdisWorkbook(buffer: ArrayBuffer): ParseResult {
       continue;
     }
     const mat = colMap["matricula"] !== undefined ? rowData[colMap["matricula"]] : undefined;
+    const nome = colMap["nome"] !== undefined ? rowData[colMap["nome"]] : undefined;
     const cod = colMap["cod_serv"] !== undefined ? rowData[colMap["cod_serv"]] : undefined;
     const tipo = colMap["tipo_serv"] !== undefined ? rowData[colMap["tipo_serv"]] : undefined;
     rows.push({
       servico,
       matricula: mat ? String(mat).trim() : undefined,
+      nome: nome ? String(nome).trim() : undefined,
       termino,
       cod_serv: cod ? String(cod).trim() : undefined,
       tipo_serv: tipo ? String(tipo).trim() : undefined,
@@ -515,9 +519,11 @@ function GdisTab() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<number | null>(null);
+  const [matriculasFaltantes, setMatriculasFaltantes] = useState<MatriculaNaoCadastrada[]>([]);
 
   const processFile = useCallback((f: File) => {
     setFile(f); setParsed(null); setImportError(null); setImportSuccess(null);
+    setMatriculasFaltantes([]);
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
@@ -532,15 +538,21 @@ function GdisTab() {
 
   const reset = () => {
     setFile(null); setParsed(null); setImportError(null); setImportSuccess(null);
+    setMatriculasFaltantes([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const handleImport = async () => {
     if (!parsed || parsed.rows.length === 0) return;
-    setImporting(true); setImportError(null);
+    setImporting(true); setImportError(null); setMatriculasFaltantes([]);
     try {
-      await importServicos(parsed.rows);
-      setImportSuccess(parsed.rows.length);
+      const result = await importServicos(parsed.rows);
+      if (!result.ok) {
+        // nada foi importado: o usuario precisa cadastrar os colaboradores antes
+        setMatriculasFaltantes(result.matriculasNaoCadastradas);
+        return;
+      }
+      setImportSuccess(result.imported);
       setTimeout(() => router.push("/dashboard/conferencia"), 1500);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Erro ao importar.");
@@ -561,6 +573,44 @@ function GdisTab() {
             <p className="text-xs text-emerald-600 mt-0.5">
               {importSuccess} serviço{importSuccess !== 1 ? "s" : ""} importado{importSuccess !== 1 ? "s" : ""}. Redirecionando…
             </p>
+          </div>
+        </div>
+      )}
+      {matriculasFaltantes.length > 0 && (
+        <div className="p-5 bg-red-50 border-2 border-red-300 rounded-xl text-red-900">
+          <div className="flex items-start gap-3">
+            <AlertTriangle size={24} className="text-red-500 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-base font-bold">Importação cancelada — nenhum serviço foi importado</p>
+              <p className="text-sm text-red-700 mt-1">
+                {matriculasFaltantes.length === 1
+                  ? "O colaborador abaixo está no relatório, mas ainda não foi cadastrado no sistema:"
+                  : `Os ${matriculasFaltantes.length} colaboradores abaixo estão no relatório, mas ainda não foram cadastrados no sistema:`}
+              </p>
+              <ul className="mt-3 space-y-2">
+                {matriculasFaltantes.map((m) => (
+                  <li
+                    key={m.matricula}
+                    className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2 bg-white border border-red-200 rounded-lg"
+                  >
+                    <span className="font-mono font-bold text-sm uppercase">{m.matricula}</span>
+                    {m.nome && <span className="text-sm font-semibold">{m.nome}</span>}
+                    <span className="text-xs text-red-600">não existe no cadastro</span>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-sm font-semibold text-red-800 mt-3">
+                O que fazer: cadastre {matriculasFaltantes.length === 1 ? "esse colaborador" : "esses colaboradores"} em
+                Colaboradores e importe a planilha novamente.
+              </p>
+              <button
+                onClick={() => router.push("/dashboard/colaboradores")}
+                className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg"
+              >
+                Cadastrar colaborador
+              </button>
+            </div>
+            <button onClick={() => setMatriculasFaltantes([])} className="text-red-400 hover:text-red-600"><X size={16} /></button>
           </div>
         </div>
       )}

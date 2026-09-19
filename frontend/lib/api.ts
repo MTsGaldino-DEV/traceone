@@ -929,6 +929,7 @@ export interface DuplicidadeMedidor {
   colaborador: string;
   status: "PENDENTE" | "CONCLUIDO";
   data: string;
+  dataConclusao: string | null;
   dias: number;
 }
 
@@ -980,9 +981,25 @@ export async function reverterDuplicidadeRevisado(
 }
 
 /**
+ * Exclui uma das linhas de um serial duplicado. Recusa (erro do banco) se for
+ * a única linha daquele serial — essa trava mora na RPC, não aqui, porque a
+ * tela pode estar desatualizada. Devolve quantas linhas sobraram.
+ *
+ * Destrutivo: leva junto os medidor_logs da linha, por ON DELETE CASCADE.
+ */
+export async function excluirMedidorDuplicado(id: string): Promise<number> {
+  const { data, error } = await supabase.rpc('excluir_medidor_duplicado', { p_id: id });
+  if (error) throw new Error(error.message);
+  return (data as number) ?? 0;
+}
+
+/**
  * Desvincula um medidor de um serviço GDIS incorreto (caso de duplicidade) e
  * o devolve para PENDENTE, para que possa ser conferido de novo com o serial
  * correto. Diferente de vincularServicoGdisMedidor: não marca como concluído.
+ *
+ * Numa duplicidade por serial isso não resolve o conflito: o serial continua
+ * repetido. Serve pro caso de vínculo errado, não pra linha sobrando.
  */
 export async function desvincularDuplicidadeMedidor(id: string): Promise<void> {
   const { error } = await supabase

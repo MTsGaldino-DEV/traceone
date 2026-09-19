@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Undo2,
   History,
+  Trash2,
 } from "lucide-react";
 import {
   getDuplicidadeMedidores,
@@ -19,6 +20,7 @@ import {
   marcarDuplicidadeRevisado,
   reverterDuplicidadeRevisado,
   desvincularDuplicidadeMedidor,
+  excluirMedidorDuplicado,
 } from "../../../../lib/api";
 import type {
   DuplicidadeMedidor,
@@ -78,13 +80,14 @@ interface GrupoProps {
   tipo: TipoDuplicidade;
   chave: string;
   medidores: DuplicidadeMedidor[];
-  onDesvinculado: (id: string) => void;
+  onLinhaAlterada: () => void;
   onRevisado: (tipo: TipoDuplicidade, chave: string) => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
 }
 
-function GrupoDuplicidade({ tipo, chave, medidores, onDesvinculado, onRevisado, addToast }: GrupoProps) {
+function GrupoDuplicidade({ tipo, chave, medidores, onLinhaAlterada, onRevisado, addToast }: GrupoProps) {
   const [desvinculandoId, setDesvinculandoId] = useState<string | null>(null);
+  const [excluindoId, setExcluindoId] = useState<string | null>(null);
   const [revisando, setRevisando] = useState(false);
   const etiqueta = ETIQUETA[tipo];
 
@@ -95,11 +98,34 @@ function GrupoDuplicidade({ tipo, chave, medidores, onDesvinculado, onRevisado, 
     try {
       await desvincularDuplicidadeMedidor(medidor.id);
       addToast("info", `Serial ${medidor.serial} desvinculado.`);
-      onDesvinculado(medidor.id);
+      onLinhaAlterada();
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Erro ao desvincular.");
     } finally {
       setDesvinculandoId(null);
+    }
+  };
+
+  const handleExcluir = async (medidor: DuplicidadeMedidor) => {
+    const servico = medidor.servicoGdis ? `serviço ${medidor.servicoGdis}` : "sem serviço";
+    if (
+      !confirm(
+        `EXCLUIR esta linha do serial ${medidor.serial} (${servico}, ${medidor.matricula})?\n\n` +
+          `A linha e o histórico dela são apagados e não voltam. ` +
+          `As outras linhas com esse serial continuam.\n\n` +
+          `Confira antes se é esta a linha errada — elas costumam ter data e responsável diferentes.`
+      )
+    )
+      return;
+    setExcluindoId(medidor.id);
+    try {
+      const restantes = await excluirMedidorDuplicado(medidor.id);
+      addToast("success", `Linha excluída. Sobrou${restantes !== 1 ? "ram" : ""} ${restantes} com o serial ${medidor.serial}.`);
+      onLinhaAlterada();
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Erro ao excluir.");
+    } finally {
+      setExcluindoId(null);
     }
   };
 
@@ -148,8 +174,9 @@ function GrupoDuplicidade({ tipo, chave, medidores, onDesvinculado, onRevisado, 
             <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Matrícula</th>
             <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Colaborador</th>
             <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Status</th>
-            <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Data</th>
-            <th className="px-3 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Ação</th>
+            <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Atribuição</th>
+            <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Conclusão</th>
+            <th className="px-3 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Ações</th>
           </tr>
         </thead>
         <tbody>
@@ -175,17 +202,47 @@ function GrupoDuplicidade({ tipo, chave, medidores, onDesvinculado, onRevisado, 
                 </span>
               </td>
               <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{formatarData(m.data)}</td>
+              <td className="px-4 py-2.5 text-xs whitespace-nowrap">
+                {m.dataConclusao ? (
+                  // Conclusão antes da atribuição é impossível — sinaliza a linha suspeita.
+                  <span
+                    className={
+                      m.dataConclusao < m.data ? "text-red-600 font-bold" : "text-slate-500"
+                    }
+                    title={m.dataConclusao < m.data ? "Concluído antes de ser atribuído — data inconsistente" : undefined}
+                  >
+                    {formatarData(m.dataConclusao)}
+                    {m.dataConclusao < m.data && " ⚠"}
+                  </span>
+                ) : (
+                  <span className="text-slate-300">—</span>
+                )}
+              </td>
               <td className="px-3 py-2.5 whitespace-nowrap">
-                <button
-                  type="button"
-                  onClick={() => handleDesvincular(m)}
-                  disabled={desvinculandoId === m.id}
-                  title="Desvincular este medidor do serviço"
-                  className="flex items-center gap-1.5 px-2.5 py-1.5 text-red-600 bg-red-50 border border-red-200 text-xs font-bold rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50"
-                >
-                  {desvinculandoId === m.id ? <Loader2 size={13} className="animate-spin" /> : <Unlink size={13} />}
-                  Desvincular
-                </button>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleDesvincular(m)}
+                    disabled={desvinculandoId === m.id || excluindoId === m.id}
+                    title="Desvincular do serviço — a linha continua, volta para PENDENTE"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-amber-700 bg-amber-50 border border-amber-200 text-xs font-bold rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50"
+                  >
+                    {desvinculandoId === m.id ? <Loader2 size={13} className="animate-spin" /> : <Unlink size={13} />}
+                    Desvincular
+                  </button>
+                  {tipo === "SERIAL" && (
+                    <button
+                      type="button"
+                      onClick={() => handleExcluir(m)}
+                      disabled={desvinculandoId === m.id || excluindoId === m.id}
+                      title="Excluir esta linha de vez — o histórico dela vai junto"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 text-red-600 bg-red-50 border border-red-200 text-xs font-bold rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50"
+                    >
+                      {excluindoId === m.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
+                      Excluir linha
+                    </button>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
@@ -286,9 +343,12 @@ export default function DuplicidadePage() {
     load();
   }, [load]);
 
-  const handleDesvinculado = useCallback((id: string) => {
-    setMedidores((prev) => prev.filter((m) => m.id !== id));
-  }, []);
+  // Recarrega em vez de filtrar local: desvincular não desfaz uma duplicidade
+  // por serial (o serial segue repetido), e excluir pode encerrar o grupo. Só
+  // o servidor sabe o que ainda é conflito.
+  const handleLinhaAlterada = useCallback(() => {
+    load();
+  }, [load]);
 
   const handleRevisado = useCallback(
     (tipo: TipoDuplicidade, chave: string) => {
@@ -414,7 +474,7 @@ export default function DuplicidadePage() {
                 tipo={g.tipo}
                 chave={g.chave}
                 medidores={g.medidores}
-                onDesvinculado={handleDesvinculado}
+                onLinhaAlterada={handleLinhaAlterada}
                 onRevisado={handleRevisado}
                 addToast={addToast}
               />

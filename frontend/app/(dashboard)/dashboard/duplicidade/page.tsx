@@ -23,6 +23,7 @@ import {
 import type {
   DuplicidadeMedidor,
   DuplicidadeRevisado,
+  TipoDuplicidade,
 } from "../../../../lib/api";
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
@@ -54,25 +55,46 @@ function formatarData(iso: string) {
   }
 }
 
-// ─── Grupo de duplicidade (um serviço, vários medidores) ──────────────────────
+/** Identidade do grupo na tela — o mesmo par que chaveia duplicidade_revisados. */
+function chaveGrupo(tipo: TipoDuplicidade, chave: string) {
+  return `${tipo}|${chave}`;
+}
+
+const ETIQUETA: Record<TipoDuplicidade, { rotulo: string; campo: string; classe: string }> = {
+  SERVICO: {
+    rotulo: "Serviço duplicado",
+    campo: "Serviço",
+    classe: "bg-amber-50 text-amber-700 border-amber-200",
+  },
+  SERIAL: {
+    rotulo: "Medidor duplicado",
+    campo: "Serial",
+    classe: "bg-violet-50 text-violet-700 border-violet-200",
+  },
+};
+
+// ─── Grupo de duplicidade ─────────────────────────────────────────────────────
 interface GrupoProps {
-  servicoGdis: string;
+  tipo: TipoDuplicidade;
+  chave: string;
   medidores: DuplicidadeMedidor[];
   onDesvinculado: (id: string) => void;
-  onRevisado: (servicoGdis: string) => void;
+  onRevisado: (tipo: TipoDuplicidade, chave: string) => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
 }
 
-function GrupoDuplicidade({ servicoGdis, medidores, onDesvinculado, onRevisado, addToast }: GrupoProps) {
+function GrupoDuplicidade({ tipo, chave, medidores, onDesvinculado, onRevisado, addToast }: GrupoProps) {
   const [desvinculandoId, setDesvinculandoId] = useState<string | null>(null);
   const [revisando, setRevisando] = useState(false);
+  const etiqueta = ETIQUETA[tipo];
 
   const handleDesvincular = async (medidor: DuplicidadeMedidor) => {
-    if (!confirm(`Desvincular o serial ${medidor.serial} do serviço ${servicoGdis}? Ele volta para PENDENTE, sem serviço.`)) return;
+    const doServico = medidor.servicoGdis ? `do serviço ${medidor.servicoGdis}` : "(já está sem serviço)";
+    if (!confirm(`Desvincular o serial ${medidor.serial} ${doServico}? Ele volta para PENDENTE, sem serviço.`)) return;
     setDesvinculandoId(medidor.id);
     try {
       await desvincularDuplicidadeMedidor(medidor.id);
-      addToast("info", `Serial ${medidor.serial} desvinculado do serviço ${servicoGdis}.`);
+      addToast("info", `Serial ${medidor.serial} desvinculado.`);
       onDesvinculado(medidor.id);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Erro ao desvincular.");
@@ -84,9 +106,9 @@ function GrupoDuplicidade({ servicoGdis, medidores, onDesvinculado, onRevisado, 
   const handleRevisar = async () => {
     setRevisando(true);
     try {
-      await marcarDuplicidadeRevisado(servicoGdis);
-      addToast("success", `Serviço ${servicoGdis} marcado como revisado.`);
-      onRevisado(servicoGdis);
+      await marcarDuplicidadeRevisado(tipo, chave);
+      addToast("success", `${etiqueta.campo} ${chave} marcado como revisado.`);
+      onRevisado(tipo, chave);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Erro ao marcar como revisado.");
       setRevisando(false);
@@ -95,17 +117,22 @@ function GrupoDuplicidade({ servicoGdis, medidores, onDesvinculado, onRevisado, 
 
   return (
     <div className="border border-slate-200 rounded-xl overflow-hidden">
-      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
-        <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">Serviço</span>
-        <span className="font-mono text-sm font-black text-slate-800">{servicoGdis}</span>
+      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center gap-2 flex-wrap">
+        <span className={`px-2 py-0.5 text-[11px] font-bold rounded-md border ${etiqueta.classe}`}>
+          {etiqueta.rotulo}
+        </span>
+        <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">{etiqueta.campo}</span>
+        <span className="font-mono text-sm font-black text-slate-800">{chave}</span>
         <span className="ml-1 text-xs text-slate-400">
-          {medidores.length} medidores vinculados
+          {tipo === "SERVICO"
+            ? `${medidores.length} medidores vinculados`
+            : `${medidores.length} linhas com esse serial`}
         </span>
         <button
           type="button"
           onClick={handleRevisar}
           disabled={revisando}
-          title="Marcar este serviço como revisado — vai para o log"
+          title="Marcar este grupo como revisado — vai para o log"
           className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 shadow-sm"
         >
           {revisando ? <Loader2 size={13} className="animate-spin" /> : <ShieldCheck size={13} />}
@@ -117,6 +144,7 @@ function GrupoDuplicidade({ servicoGdis, medidores, onDesvinculado, onRevisado, 
         <thead>
           <tr className="bg-white border-b border-slate-100">
             <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Serial</th>
+            <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Serviço</th>
             <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Matrícula</th>
             <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Colaborador</th>
             <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Status</th>
@@ -129,6 +157,9 @@ function GrupoDuplicidade({ servicoGdis, medidores, onDesvinculado, onRevisado, 
             <tr key={m.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
               <td className="px-4 py-2.5">
                 <span className="font-mono text-sm font-bold text-slate-800">{m.serial}</span>
+              </td>
+              <td className="px-4 py-2.5 font-mono text-xs text-slate-600 whitespace-nowrap">
+                {m.servicoGdis ?? <span className="text-slate-300 font-sans">—</span>}
               </td>
               <td className="px-4 py-2.5 text-xs text-slate-600 font-mono whitespace-nowrap">{m.matricula}</td>
               <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">{m.colaborador}</td>
@@ -167,18 +198,19 @@ function GrupoDuplicidade({ servicoGdis, medidores, onDesvinculado, onRevisado, 
 // ─── Linha do log de revisados ────────────────────────────────────────────────
 interface RevisadoRowProps {
   revisado: DuplicidadeRevisado;
-  onRevertido: (servicoGdis: string) => void;
+  onRevertido: (tipo: TipoDuplicidade, chave: string) => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
 }
 
 function RevisadoRow({ revisado, onRevertido, addToast }: RevisadoRowProps) {
   const [revertendo, setRevertendo] = useState(false);
+  const etiqueta = ETIQUETA[revisado.tipo];
 
   const handleReverter = async () => {
     setRevertendo(true);
     try {
-      await reverterDuplicidadeRevisado(revisado.servicoGdis);
-      onRevertido(revisado.servicoGdis);
+      await reverterDuplicidadeRevisado(revisado.tipo, revisado.chave);
+      onRevertido(revisado.tipo, revisado.chave);
     } catch (err) {
       addToast("error", err instanceof Error ? err.message : "Erro ao reverter.");
       setRevertendo(false);
@@ -188,11 +220,16 @@ function RevisadoRow({ revisado, onRevertido, addToast }: RevisadoRowProps) {
   return (
     <tr className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className="font-mono text-sm font-bold text-slate-800">{revisado.servicoGdis}</span>
+        <span className={`px-2 py-0.5 text-[11px] font-bold rounded-md border ${etiqueta.classe}`}>
+          {etiqueta.rotulo}
+        </span>
+      </td>
+      <td className="px-4 py-3 whitespace-nowrap">
+        <span className="font-mono text-sm font-bold text-slate-800">{revisado.chave}</span>
       </td>
       <td className="px-4 py-3">
         <div className="flex flex-wrap gap-1.5">
-          {revisado.seriaisConflitantes.map((s) => (
+          {revisado.itensConflitantes.map((s) => (
             <span key={s} className="font-mono text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
               {s}
             </span>
@@ -254,27 +291,33 @@ export default function DuplicidadePage() {
   }, []);
 
   const handleRevisado = useCallback(
-    (servicoGdis: string) => {
-      setMedidores((prev) => prev.filter((m) => m.servicoGdis !== servicoGdis));
+    (tipo: TipoDuplicidade, chave: string) => {
+      setMedidores((prev) => prev.filter((m) => !(m.tipo === tipo && m.chave === chave)));
       load();
     },
     [load]
   );
 
   const handleRevertido = useCallback(
-    (servicoGdis: string) => {
-      setRevisados((prev) => prev.filter((r) => r.servicoGdis !== servicoGdis));
-      addToast("info", `Serviço ${servicoGdis} voltou para a lista de duplicidade.`);
+    (tipo: TipoDuplicidade, chave: string) => {
+      setRevisados((prev) => prev.filter((r) => !(r.tipo === tipo && r.chave === chave)));
+      addToast("info", `${ETIQUETA[tipo].campo} ${chave} voltou para a lista de duplicidade.`);
       load();
     },
     [load, addToast]
   );
 
-  const grupos = new Map<string, DuplicidadeMedidor[]>();
+  // Um grupo por (tipo, chave): a mesma linha pode cair nos dois critérios e
+  // aparecer duas vezes — são problemas diferentes, com correções diferentes.
+  const grupos = new Map<string, { tipo: TipoDuplicidade; chave: string; medidores: DuplicidadeMedidor[] }>();
   for (const m of medidores) {
-    if (!grupos.has(m.servicoGdis)) grupos.set(m.servicoGdis, []);
-    grupos.get(m.servicoGdis)!.push(m);
+    const k = chaveGrupo(m.tipo, m.chave);
+    if (!grupos.has(k)) grupos.set(k, { tipo: m.tipo, chave: m.chave, medidores: [] });
+    grupos.get(k)!.medidores.push(m);
   }
+
+  const qtdServico = Array.from(grupos.values()).filter((g) => g.tipo === "SERVICO").length;
+  const qtdSerial = Array.from(grupos.values()).filter((g) => g.tipo === "SERIAL").length;
 
   return (
     <div className="flex flex-col h-full">
@@ -308,14 +351,18 @@ export default function DuplicidadePage() {
         <div className="flex-1">
           <h2 className="text-sm font-bold text-slate-900">Duplicidade de Medidores</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Serviços GDIS com mais de um medidor vinculado. Confira e desvincule o serial errado.
+            Serviço com mais de um medidor, ou o mesmo medidor em mais de uma linha. TC e chave de
+            aferição ficam de fora.
           </p>
         </div>
 
         {grupos.size > 0 && (
           <div className="text-right">
-            <p className="text-xs text-slate-500">Serviços em conflito</p>
+            <p className="text-xs text-slate-500">Grupos em conflito</p>
             <p className="text-lg font-black text-slate-900 leading-tight">{grupos.size}</p>
+            <p className="text-[11px] text-slate-400">
+              {qtdSerial} por medidor · {qtdServico} por serviço
+            </p>
           </div>
         )}
 
@@ -361,11 +408,12 @@ export default function DuplicidadePage() {
 
         {!loading && grupos.size > 0 && (
           <div className="p-4 flex flex-col gap-4">
-            {Array.from(grupos.entries()).map(([servicoGdis, meds]) => (
+            {Array.from(grupos.entries()).map(([k, g]) => (
               <GrupoDuplicidade
-                key={servicoGdis}
-                servicoGdis={servicoGdis}
-                medidores={meds}
+                key={k}
+                tipo={g.tipo}
+                chave={g.chave}
+                medidores={g.medidores}
                 onDesvinculado={handleDesvinculado}
                 onRevisado={handleRevisado}
                 addToast={addToast}
@@ -382,7 +430,7 @@ export default function DuplicidadePage() {
               <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">Revisados</span>
               <span className="ml-1 text-xs text-slate-400">— log do que já foi conferido e considerado correto</span>
               <span className="ml-auto text-xs text-slate-400">
-                {revisados.length} serviço{revisados.length !== 1 ? "s" : ""}
+                {revisados.length} grupo{revisados.length !== 1 ? "s" : ""}
               </span>
             </div>
 
@@ -391,10 +439,13 @@ export default function DuplicidadePage() {
                 <thead>
                   <tr className="bg-slate-50/60 border-b border-slate-100">
                     <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">
-                      Serviço
+                      Motivo
                     </th>
                     <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">
-                      Seriais em conflito (na revisão)
+                      Chave
+                    </th>
+                    <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">
+                      Em conflito (na revisão)
                     </th>
                     <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap">
                       Revisado por
@@ -407,7 +458,7 @@ export default function DuplicidadePage() {
                 <tbody>
                   {revisados.map((r) => (
                     <RevisadoRow
-                      key={r.servicoGdis}
+                      key={chaveGrupo(r.tipo, r.chave)}
                       revisado={r}
                       onRevertido={handleRevertido}
                       addToast={addToast}

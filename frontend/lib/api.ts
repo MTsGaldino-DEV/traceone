@@ -909,10 +909,20 @@ export async function vincularServicoGdisMedidor(id: string, servicoGdis: string
   if (error) throw new Error(error.message);
 }
 
-// ─── Duplicidade: mesmo serviço GDIS vinculado a mais de um medidor ───────────
+// ─── Duplicidade: dois critérios ─────────────────────────────────────────────
+// SERVICO — um serviço do GDIS puxou mais de um medidor diferente.
+// SERIAL  — o mesmo medidor aparece em mais de uma linha (duplicata literal ou
+//           vinculado a dois serviços distintos).
+// TC e chave de aferição ficam de fora dos dois: podem dividir serviço com o
+// medidor legitimamente.
+
+export type TipoDuplicidade = 'SERVICO' | 'SERIAL';
 
 export interface DuplicidadeMedidor {
-  servicoGdis: string;
+  tipo: TipoDuplicidade;
+  /** O que define o grupo: o serviço (tipo SERVICO) ou o serial (tipo SERIAL). */
+  chave: string;
+  servicoGdis: string | null;
   id: string;
   serial: string;
   matricula: string;
@@ -922,10 +932,14 @@ export interface DuplicidadeMedidor {
   dias: number;
 }
 
-/** Log de serviços já revisados — a foto dos seriais é do momento da revisão. */
+/**
+ * Log de grupos já revisados. O snapshot é do momento da revisão: num grupo
+ * SERVICO são os seriais em conflito, num grupo SERIAL são os serviços.
+ */
 export interface DuplicidadeRevisado {
-  servicoGdis: string;
-  seriaisConflitantes: string[];
+  tipo: TipoDuplicidade;
+  chave: string;
+  itensConflitantes: string[];
   revisadoPor: string;
   revisadoEm: string;
 }
@@ -942,18 +956,26 @@ export async function getDuplicidadeRevisados(): Promise<DuplicidadeRevisado[]> 
   return (data ?? []) as DuplicidadeRevisado[];
 }
 
-export async function marcarDuplicidadeRevisado(servicoGdis: string): Promise<void> {
+export async function marcarDuplicidadeRevisado(
+  tipo: TipoDuplicidade,
+  chave: string
+): Promise<void> {
   const { error } = await supabase.rpc('marcar_duplicidade_revisado', {
-    p_servico_gdis: servicoGdis,
+    p_tipo:  tipo,
+    p_chave: chave,
   });
   if (error) throw new Error(error.message);
 }
 
-export async function reverterDuplicidadeRevisado(servicoGdis: string): Promise<void> {
+export async function reverterDuplicidadeRevisado(
+  tipo: TipoDuplicidade,
+  chave: string
+): Promise<void> {
   const { error } = await supabase
     .from('duplicidade_revisados')
     .delete()
-    .eq('servico_gdis', servicoGdis);
+    .eq('tipo', tipo)
+    .eq('chave', chave);
   if (error) throw new Error(error.message);
 }
 

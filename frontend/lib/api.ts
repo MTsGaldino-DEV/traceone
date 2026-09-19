@@ -1007,18 +1007,51 @@ export async function resolverRecuperacaoPendente(medidorId: string, serialCorre
   return !!data;
 }
 
+// ─── Serviços da Conferência pendentes de vínculo, para a Automação GDIS ──────
+// Mesmas duas filas que a aba Conferência mostra em abas separadas (PENDENTE
+// e AGUARDANDO_VINCULACAO) — aqui viram uma lista só, sem paginação de tela.
+
+export interface ServicoConferenciaAutomacao {
+  servico: string;
+  matricula: string | null;
+}
+
+export async function getServicosConferenciaParaAutomacao(): Promise<ServicoConferenciaAutomacao[]> {
+  const result: ServicoConferenciaAutomacao[] = [];
+  let from = 0;
+  const PAGE = 1000;
+  while (true) {
+    const { data, error } = await supabase
+      .from('servicos_report')
+      .select('servico,matricula')
+      .in('status_conferencia', ['PENDENTE', 'AGUARDANDO_VINCULACAO'])
+      .order('servico', { ascending: true })
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    result.push(...((data ?? []) as ServicoConferenciaAutomacao[]));
+    if ((data ?? []).length < PAGE) break;
+    from += PAGE;
+  }
+  return result;
+}
+
 // ─── Histórico das rodadas da Automação GDIS (ADMIN) ─────────────────────────
 
-export type ResultadoAutomacao = 'ENCONTRADO' | 'GRAVADO' | 'CONFLITO' | 'VAZIO' | 'ERRO';
+export type ResultadoAutomacao = 'ENCONTRADO' | 'GRAVADO' | 'CONFLITO' | 'VAZIO' | 'ERRO' | 'AGUARDANDO';
+export type OrigemAutomacao = 'RECUPERACAO' | 'CONFERENCIA';
 
 export interface AutomacaoLogEntrada {
   execucaoId: string;
-  medidorId: string;
+  /** Identidade da linha dentro da rodada: "rec:<medidorId>" ou "conf:<servico>". */
+  chaveItem: string;
+  origem: OrigemAutomacao;
+  /** Só existe pra origem RECUPERACAO — item de CONFERENCIA ainda não tem medidor. */
+  medidorId?: string | null;
   servicoGdis: string | null;
-  matricula: string;
-  colaborador: string;
-  tipoEquipamento: string;
-  serialAnterior: string;
+  matricula: string | null;
+  colaborador?: string | null;
+  tipoEquipamento?: string | null;
+  serialAnterior?: string | null;
   serialEncontrado: string | null;
   resultado: ResultadoAutomacao;
   observacao: string | null;
@@ -1035,10 +1068,12 @@ export interface AutomacaoExecucao {
   vazios: number;
   erros: number;
   encontrados: number;
+  aguardando: number;
   executadoPor: string;
 }
 
 export interface AutomacaoExecucaoItem {
+  origem: OrigemAutomacao;
   servicoGdis: string | null;
   matricula: string | null;
   colaborador: string | null;
@@ -1052,26 +1087,28 @@ export interface AutomacaoExecucaoItem {
 }
 
 /**
- * Registra o desfecho de uma linha. O mesmo medidor na mesma rodada evolui de
- * ENCONTRADO para GRAVADO/CONFLITO em vez de virar duas linhas.
+ * Registra o desfecho de uma linha. A mesma chave na mesma rodada evolui de
+ * ENCONTRADO para GRAVADO/CONFLITO/AGUARDANDO em vez de virar duas linhas.
  */
 export async function registrarAutomacaoLog(entrada: AutomacaoLogEntrada): Promise<void> {
   const { error } = await supabase.from('automacao_gdis_log').upsert(
     {
       execucao_id: entrada.execucaoId,
-      medidor_id: entrada.medidorId,
+      chave_item: entrada.chaveItem,
+      origem: entrada.origem,
+      medidor_id: entrada.medidorId ?? null,
       servico_gdis: entrada.servicoGdis,
       matricula: entrada.matricula,
       colaborador: entrada.colaborador,
-      tipo_equipamento: entrada.tipoEquipamento,
-      serial_anterior: entrada.serialAnterior,
+      tipo_equipamento: entrada.tipoEquipamento ?? null,
+      serial_anterior: entrada.serialAnterior ?? null,
       serial_encontrado: entrada.serialEncontrado,
       resultado: entrada.resultado,
       observacao: entrada.observacao,
       modo: entrada.modo,
       atualizado_em: new Date().toISOString(),
     },
-    { onConflict: 'execucao_id,medidor_id' }
+    { onConflict: 'execucao_id,chave_item' }
   );
   if (error) throw new Error(error.message);
 }

@@ -21,20 +21,23 @@ import {
 import {
   getRecuperacaoPendente,
   resolverRecuperacaoPendente,
+  getServicosConferenciaParaAutomacao,
+  vincularServicoMedidor,
   registrarAutomacaoLog,
   getAutomacaoExecucoes,
   getAutomacaoExecucaoItens,
 } from "../../../../lib/api";
 import type {
-  RecuperacaoPendenteItem,
   AutomacaoExecucao,
   ResultadoAutomacao,
+  OrigemAutomacao,
 } from "../../../../lib/api";
 
 const CONECTOR_URL = "http://localhost:3334";
 const TAMANHO_PAGINA = 50;
 
 const COLUNAS_BASE = [
+  "Fila",
   "Serviço GDIS",
   "Matrícula",
   "Colaborador",
@@ -45,12 +48,18 @@ const COLUNAS_BASE = [
   "Observação",
 ];
 
+const ROTULO_FILA: Record<OrigemAutomacao, string> = {
+  RECUPERACAO: "Recuperação",
+  CONFERENCIA: "Conferência",
+};
+
 const ROTULO_RESULTADO: Record<ResultadoAutomacao, string> = {
   ENCONTRADO: "Encontrado (não gravado)",
   GRAVADO: "Gravado",
   CONFLITO: "Gravado (serial duplicado em outra linha)",
   VAZIO: "Sem serial no GDIS",
   ERRO: "Erro na consulta",
+  AGUARDANDO: "Aguardando vínculo (serial não bate com nenhum medidor pendente)",
 };
 
 function baixarCsv(cabecalho: string[], linhas: string[][], nomeArquivo: string) {
@@ -71,13 +80,39 @@ function carimboArquivo(d: Date) {
 }
 
 // ─── Tipos locais ─────────────────────────────────────────────────────────────
+
+/**
+ * Duas filas, um item comum. "chave" é a identidade da linha em todo o resto
+ * da tela (seleção, status, log) — "rec:<medidorId>" ou "conf:<servico>". O
+ * conector só ecoa de volta o que a gente manda no campo "medidorId" do
+ * protocolo, então essa chave viaja nele sem precisar mudar o conector.
+ */
+type ItemAutomacao =
+  | {
+      origem: "RECUPERACAO";
+      chave: string;
+      medidorId: string;
+      servicoGdis: string;
+      matricula: string;
+      colaborador: string;
+      tipoEquipamento: string;
+      serialAtual: string;
+    }
+  | {
+      origem: "CONFERENCIA";
+      chave: string;
+      servicoGdis: string;
+      matricula: string | null;
+    };
+
 type StatusLinha =
   | { tipo: "pendente" }
   | { tipo: "consultando" }
   | { tipo: "encontrado"; serial: string; matExecutor?: string }
   | { tipo: "vazio"; msg: string }
   | { tipo: "erro"; msg: string }
-  | { tipo: "gravado"; serial: string; duplicado?: boolean };
+  | { tipo: "gravado"; serial: string; duplicado?: boolean }
+  | { tipo: "aguardando"; serial: string };
 
 interface LogEntry {
   id: number;
@@ -87,16 +122,18 @@ interface LogEntry {
 }
 
 type Etapa = "idle" | "aguardando_captcha" | "rodando" | "finalizado";
+type FiltroFila = "todas" | OrigemAutomacao;
 
 let logCounter = 0;
 
 // ─── Página ───────────────────────────────────────────────────────────────────
 export default function AutomacaoGdisPage() {
-  const [itens, setItens] = useState<RecuperacaoPendenteItem[]>([]);
+  const [itens, setItens] = useState<ItemAutomacao[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const [selecionados, setSelecionados] = useState<string[]>([]);
+  const [filtroFila, setFiltroFila] = useState<FiltroFila>("todas");
   const [pagina, setPagina] = useState(1);
   const [status, setStatus] = useState<Record<string, StatusLinha>>({});
   const [seriaisEditados, setSeriaisEditados] = useState<Record<string, string>>({});
@@ -113,7 +150,7 @@ export default function AutomacaoGdisPage() {
 
   // Guarda todo item já carregado. As linhas gravadas saem da lista no reload
   // seguinte, e sem isso o relatório perderia exatamente os sucessos.
-  const cadastroRef = useRef(new Map<string, RecuperacaoPendenteItem>());
+  const cadastroRef = useRef(new Map<string, ItemAutomacao>());
 
   // Identifica a rodada atual no banco. Criado no início do lote, ou sob
   // demanda quando alguém grava na mão sem ter disparado um lote.
@@ -134,16 +171,41 @@ export default function AutomacaoGdisPage() {
     setLogs((prev) => [...prev.slice(-400), { id: ++logCounter, hora, tipo, msg }]);
   }, []);
 
-  // ── Carrega candidatos: só medidor de verdade e com serviço conhecido ──────
+  // ── Carrega candidatos das duas filas ──────────────────────────────────────
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const todos = await getRecuperacaoPendente();
-      const candidatos = todos.filter(
-        (i) => i.servicoGdis && i.tipoEquipamento.toUpperCase().startsWith("MEDID")
-      );
-      candidatos.forEach((i) => cadastroRef.current.set(i.medidorId, i));
+      const [recuperacao, conferencia] = await Promise.all([
+        getRecuperacaoPendente(),
+        getServicosConferenciaParaAutomacao(),
+      ]);
+
+      // Recuperação: só medidor de verdade e com serviço conhecido.
+      const daRecuperacao: ItemAutomacao[] = recuperacao
+        .filter((i) => i.servicoGdis && i.tipoEquipamento.toUpperCase().startsWith("MEDID"))
+        .map((i) => ({
+          origem: "RECUPERACAO",
+          chave: `rec:${i.medidorId}`,
+          medidorId: i.medidorId,
+          servicoGdis: i.servicoGdis as string,
+          matricula: i.matricula,
+          colaborador: i.colaborador,
+          tipoEquipamento: i.tipoEquipamento,
+          serialAtual: i.serialAtual,
+        }));
+
+      // Conferência: serviço sem medidor vinculado ainda — não tem tipo de
+      // equipamento nem colaborador pra mostrar, só o serviço e a matrícula.
+      const daConferencia: ItemAutomacao[] = conferencia.map((s) => ({
+        origem: "CONFERENCIA",
+        chave: `conf:${s.servico}`,
+        servicoGdis: s.servico,
+        matricula: s.matricula,
+      }));
+
+      const candidatos = [...daRecuperacao, ...daConferencia];
+      candidatos.forEach((i) => cadastroRef.current.set(i.chave, i));
       setItens(candidatos);
       setPagina(1);
     } catch (err) {
@@ -192,23 +254,25 @@ export default function AutomacaoGdisPage() {
   // relatório da sessão continua valendo, só o histórico fica incompleto.
   const registrarLog = useCallback(
     async (
-      medidorId: string,
+      chave: string,
       resultado: ResultadoAutomacao,
       extra: { serial?: string | null; obs?: string | null; modo?: "AUTOMATICO" | "MANUAL" } = {}
     ) => {
-      const item = cadastroRef.current.get(medidorId);
+      const item = cadastroRef.current.get(chave);
       if (!item) return;
       if (!execucaoIdRef.current) execucaoIdRef.current = crypto.randomUUID();
 
       try {
         await registrarAutomacaoLog({
           execucaoId: execucaoIdRef.current,
-          medidorId,
+          chaveItem: chave,
+          origem: item.origem,
+          medidorId: item.origem === "RECUPERACAO" ? item.medidorId : null,
           servicoGdis: item.servicoGdis,
           matricula: item.matricula,
-          colaborador: item.colaborador,
-          tipoEquipamento: item.tipoEquipamento,
-          serialAnterior: item.serialAtual,
+          colaborador: item.origem === "RECUPERACAO" ? item.colaborador : null,
+          tipoEquipamento: item.origem === "RECUPERACAO" ? item.tipoEquipamento : null,
+          serialAnterior: item.origem === "RECUPERACAO" ? item.serialAtual : null,
           serialEncontrado: extra.serial ?? null,
           resultado,
           observacao: extra.obs ?? null,
@@ -222,28 +286,60 @@ export default function AutomacaoGdisPage() {
   );
 
   const gravarSerial = useCallback(
-    async (medidorId: string, serial: string, modo: "AUTOMATICO" | "MANUAL") => {
+    async (chave: string, serial: string, modo: "AUTOMATICO" | "MANUAL") => {
+      const item = cadastroRef.current.get(chave);
+      if (!item) return;
+
       try {
-        const duplicado = await resolverRecuperacaoPendente(medidorId, serial);
-        setStatus((prev) => ({ ...prev, [medidorId]: { tipo: "gravado", serial, duplicado } }));
-        if (duplicado) {
-          addLog(
-            "aviso",
-            `Serial ${serial} gravado, mas já existe em outra linha — marcado para revisão de duplicidade depois.`
-          );
-          registrarLog(medidorId, "CONFLITO", {
-            serial,
-            obs: "Gravado; serial já existia em outra linha da lista de medidores.",
-            modo,
-          });
+        if (item.origem === "RECUPERACAO") {
+          const duplicado = await resolverRecuperacaoPendente(item.medidorId, serial);
+          setStatus((prev) => ({ ...prev, [chave]: { tipo: "gravado", serial, duplicado } }));
+          if (duplicado) {
+            addLog(
+              "aviso",
+              `Serial ${serial} gravado, mas já existe em outra linha — marcado para revisão de duplicidade depois.`
+            );
+            registrarLog(chave, "CONFLITO", {
+              serial,
+              obs: "Gravado; serial já existia em outra linha da lista de medidores.",
+              modo,
+            });
+          } else {
+            addLog("sucesso", `Serial ${serial} gravado no medidor.`);
+            registrarLog(chave, "GRAVADO", { serial, modo });
+          }
         } else {
-          addLog("sucesso", `Serial ${serial} gravado no medidor.`);
-          registrarLog(medidorId, "GRAVADO", { serial, modo });
+          // Conferência: o serial pode não bater com nenhum medidor PENDENTE
+          // no cadastro — não é erro, o serviço só fica pra revisão manual.
+          const resultado = await vincularServicoMedidor(item.servicoGdis, serial);
+          if (resultado.aguardando) {
+            setStatus((prev) => ({ ...prev, [chave]: { tipo: "aguardando", serial } }));
+            addLog(
+              "aviso",
+              `Serial ${serial} não corresponde a nenhum medidor pendente no cadastro — serviço ${item.servicoGdis} segue aguardando na Conferência.`
+            );
+            registrarLog(chave, "AGUARDANDO", {
+              serial,
+              obs: "Nenhum medidor PENDENTE com esse serial no cadastro.",
+              modo,
+            });
+          } else {
+            setStatus((prev) => ({ ...prev, [chave]: { tipo: "gravado", serial } }));
+            addLog(
+              "sucesso",
+              `Serial ${serial} vinculado ao serviço ${item.servicoGdis}${resultado.nome ? ` (${resultado.nome})` : ""}.`
+            );
+            registrarLog(chave, "GRAVADO", {
+              serial,
+              obs: resultado.nome ? `Vinculado a ${resultado.nome}.` : null,
+              modo,
+            });
+          }
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : "erro";
         addLog("erro", `Falha ao gravar ${serial}: ${msg}`);
-        registrarLog(medidorId, "ERRO", { serial, obs: msg, modo });
+        registrarLog(chave, "ERRO", { serial, obs: msg, modo });
       }
     },
     [addLog, registrarLog]
@@ -256,6 +352,9 @@ export default function AutomacaoGdisPage() {
 
     es.onmessage = (e) => {
       const ev = JSON.parse(e.data);
+      // O conector só ecoa esse campo de volta — aqui ele carrega a chave
+      // combinada ("rec:..." / "conf:..."), não um medidor_id de verdade.
+      const chave = ev.medidorId;
 
       switch (ev.tipo) {
         case "debug":
@@ -265,30 +364,30 @@ export default function AutomacaoGdisPage() {
           addLog("info", `Iniciando consulta de ${ev.total} serviço(s).`);
           break;
         case "iniciando":
-          setStatus((prev) => ({ ...prev, [ev.medidorId]: { tipo: "consultando" } }));
+          setStatus((prev) => ({ ...prev, [chave]: { tipo: "consultando" } }));
           break;
         case "encontrado":
           setStatus((prev) => ({
             ...prev,
-            [ev.medidorId]: { tipo: "encontrado", serial: ev.serial, matExecutor: ev.matExecutor },
+            [chave]: { tipo: "encontrado", serial: ev.serial, matExecutor: ev.matExecutor },
           }));
-          setSeriaisEditados((prev) => ({ ...prev, [ev.medidorId]: ev.serial }));
+          setSeriaisEditados((prev) => ({ ...prev, [chave]: ev.serial }));
           addLog("sucesso", `Serviço ${ev.servicoGdis} → ${ev.serial}`);
           if (modoAutomaticoRef.current) {
-            gravarSerial(ev.medidorId, ev.serial, "AUTOMATICO");
+            gravarSerial(chave, ev.serial, "AUTOMATICO");
           } else {
-            registrarLog(ev.medidorId, "ENCONTRADO", { serial: ev.serial });
+            registrarLog(chave, "ENCONTRADO", { serial: ev.serial });
           }
           break;
         case "vazio":
-          setStatus((prev) => ({ ...prev, [ev.medidorId]: { tipo: "vazio", msg: ev.msg } }));
+          setStatus((prev) => ({ ...prev, [chave]: { tipo: "vazio", msg: ev.msg } }));
           addLog("aviso", `Serviço ${ev.servicoGdis}: ${ev.msg}`);
-          registrarLog(ev.medidorId, "VAZIO", { obs: ev.msg });
+          registrarLog(chave, "VAZIO", { obs: ev.msg });
           break;
         case "erro":
-          setStatus((prev) => ({ ...prev, [ev.medidorId]: { tipo: "erro", msg: ev.msg } }));
+          setStatus((prev) => ({ ...prev, [chave]: { tipo: "erro", msg: ev.msg } }));
           addLog("erro", `Serviço ${ev.servicoGdis}: ${ev.msg}`);
-          registrarLog(ev.medidorId, "ERRO", { obs: ev.msg });
+          registrarLog(chave, "ERRO", { obs: ev.msg });
           break;
         case "sessao_perdida":
           addLog("erro", ev.msg);
@@ -347,9 +446,11 @@ export default function AutomacaoGdisPage() {
       execucaoIdRef.current = crypto.randomUUID();
       setEtapa("rodando");
 
-      const lista = selecionados.map((medidorId) => {
-        const item = itens.find((i) => i.medidorId === medidorId)!;
-        return { medidorId, servicoGdis: item.servicoGdis };
+      // "medidorId" é só o nome do campo no protocolo do conector — carrega
+      // a chave combinada, ele nunca olha pra dentro do valor.
+      const lista = selecionados.map((chave) => {
+        const item = cadastroRef.current.get(chave)!;
+        return { medidorId: chave, servicoGdis: item.servicoGdis };
       });
       setStatus(Object.fromEntries(selecionados.map((id) => [id, { tipo: "pendente" as const }])));
 
@@ -368,45 +469,51 @@ export default function AutomacaoGdisPage() {
     addLog("aviso", "Cancelamento solicitado.");
   };
 
-  const toggleSelecionado = (id: string) =>
-    setSelecionados((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  const toggleSelecionado = (chave: string) =>
+    setSelecionados((prev) => (prev.includes(chave) ? prev.filter((x) => x !== chave) : [...prev, chave]));
 
-  const totalPaginas = Math.max(1, Math.ceil(itens.length / TAMANHO_PAGINA));
-  const itensPagina = itens.slice((pagina - 1) * TAMANHO_PAGINA, pagina * TAMANHO_PAGINA);
-  const paginaToda = itensPagina.every((i) => selecionados.includes(i.medidorId));
+  // Lista combinada, filtrada pela fila escolhida acima da tabela.
+  const itensVisiveis = filtroFila === "todas" ? itens : itens.filter((i) => i.origem === filtroFila);
+  const qtdRecuperacao = itens.filter((i) => i.origem === "RECUPERACAO").length;
+  const qtdConferencia = itens.filter((i) => i.origem === "CONFERENCIA").length;
+
+  const totalPaginas = Math.max(1, Math.ceil(itensVisiveis.length / TAMANHO_PAGINA));
+  const itensPagina = itensVisiveis.slice((pagina - 1) * TAMANHO_PAGINA, pagina * TAMANHO_PAGINA);
+  const paginaToda = itensPagina.every((i) => selecionados.includes(i.chave));
 
   // Pega os primeiros N que ainda não foram tentados nesta sessão, pra
   // rodadas de teste sucessivas irem avançando na lista em vez de repetir.
   const selecionarPrimeiros = (n: number) => {
     // "pendente" é linha de lote cancelado que nunca chegou a ser consultada.
-    const naoProcessados = itens.filter((i) => {
-      const st = status[i.medidorId];
+    const naoProcessados = itensVisiveis.filter((i) => {
+      const st = status[i.chave];
       return !st || st.tipo === "pendente";
     });
-    setSelecionados(naoProcessados.slice(0, n).map((i) => i.medidorId));
+    setSelecionados(naoProcessados.slice(0, n).map((i) => i.chave));
     setPagina(1);
   };
 
   const togglePagina = () => {
-    const idsPagina = itensPagina.map((i) => i.medidorId);
+    const chavesPagina = itensPagina.map((i) => i.chave);
     setSelecionados((prev) =>
       paginaToda
-        ? prev.filter((id) => !idsPagina.includes(id))
-        : [...new Set([...prev, ...idsPagina])]
+        ? prev.filter((id) => !chavesPagina.includes(id))
+        : [...new Set([...prev, ...chavesPagina])]
     );
   };
 
   const toggleTodos = () => {
-    const todosIds = itens.map((i) => i.medidorId);
-    setSelecionados(todosIds.every((id) => selecionados.includes(id)) ? [] : todosIds);
+    const todasChaves = itensVisiveis.map((i) => i.chave);
+    setSelecionados(todasChaves.every((id) => selecionados.includes(id)) ? [] : todasChaves);
   };
 
   // ── Relatório do lote ──────────────────────────────────────────────────────
   const baixarRelatorio = () => {
     // Percorre o status (ordem de processamento), não a lista visível.
-    const linhas = Object.entries(status).map(([medidorId, st]) => {
-      const i = cadastroRef.current.get(medidorId);
-      const serialResultado = st.tipo === "gravado" || st.tipo === "encontrado" ? st.serial : "";
+    const linhas = Object.entries(status).map(([chave, st]) => {
+      const i = cadastroRef.current.get(chave);
+      const serialResultado =
+        st.tipo === "gravado" || st.tipo === "encontrado" || st.tipo === "aguardando" ? st.serial : "";
       const obs = st.tipo === "erro" || st.tipo === "vazio" ? st.msg : "";
       const rotuloLinha =
         st.tipo === "gravado" && st.duplicado
@@ -417,17 +524,20 @@ export default function AutomacaoGdisPage() {
           ? "Interrompido durante consulta"
           : st.tipo === "encontrado"
           ? "Encontrado (não gravado)"
+          : st.tipo === "aguardando"
+          ? "Aguardando vínculo (serial não bate com pendente)"
           : st.tipo === "vazio"
           ? "Sem serial no GDIS"
           : st.tipo === "erro"
           ? "Erro na consulta"
           : "Gravado";
       return [
+        i ? ROTULO_FILA[i.origem] : "",
         i?.servicoGdis ?? "",
         i?.matricula ?? "",
-        i?.colaborador ?? "",
-        i?.tipoEquipamento ?? "",
-        i?.serialAtual ?? "",
+        i && i.origem === "RECUPERACAO" ? i.colaborador : "",
+        i && i.origem === "RECUPERACAO" ? i.tipoEquipamento : "",
+        i && i.origem === "RECUPERACAO" ? i.serialAtual : "",
         serialResultado,
         rotuloLinha,
         obs,
@@ -440,8 +550,9 @@ export default function AutomacaoGdisPage() {
   const baixarExecucao = async (execucaoId: string, inicio: string) => {
     setBaixandoId(execucaoId);
     try {
-      const itens = await getAutomacaoExecucaoItens(execucaoId);
-      const linhas = itens.map((i) => [
+      const itensExecucao = await getAutomacaoExecucaoItens(execucaoId);
+      const linhas = itensExecucao.map((i) => [
+        ROTULO_FILA[i.origem],
         i.servicoGdis ?? "",
         i.matricula ?? "",
         i.colaborador ?? "",
@@ -468,6 +579,7 @@ export default function AutomacaoGdisPage() {
   const rodando = etapa === "rodando";
   const qtdEncontrados = Object.values(status).filter((s) => s.tipo === "encontrado").length;
   const qtdGravados = Object.values(status).filter((s) => s.tipo === "gravado").length;
+  const qtdAguardando = Object.values(status).filter((s) => s.tipo === "aguardando").length;
   const qtdFalhas = Object.values(status).filter((s) => s.tipo === "erro" || s.tipo === "vazio").length;
   const qtdDuplicados = Object.values(status).filter((s) => s.tipo === "gravado" && s.duplicado).length;
   const qtdProcessados = Object.keys(status).length;
@@ -479,7 +591,8 @@ export default function AutomacaoGdisPage() {
         <div className="flex-1">
           <h2 className="text-sm font-bold text-slate-900">Automação GDIS</h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Consulta o serial instalado de cada serviço direto no GDIS. Só medidores — TCs ficam de fora.
+            Consulta o serial de cada serviço direto no GDIS — medidores em recuperação e serviços
+            pendentes de vínculo na Conferência.
           </p>
         </div>
         {itens.length > 0 && (
@@ -603,7 +716,8 @@ export default function AutomacaoGdisPage() {
               <Loader2 size={14} className="animate-spin text-blue-600" />
               <span className="text-xs text-slate-600 flex-1">
                 Consultando… {qtdEncontrados} encontrado(s), {qtdGravados} gravado(s)
-                {qtdDuplicados > 0 && ` (${qtdDuplicados} duplicado(s))`}, {qtdFalhas} sem resultado.
+                {qtdDuplicados > 0 && ` (${qtdDuplicados} duplicado(s))`}
+                {qtdAguardando > 0 && `, ${qtdAguardando} aguardando`}, {qtdFalhas} sem resultado.
               </span>
               <button
                 type="button"
@@ -621,7 +735,8 @@ export default function AutomacaoGdisPage() {
               <CheckCircle2 size={14} className="text-emerald-600" />
               <span className="text-xs text-slate-600 flex-1">
                 Finalizado: {qtdEncontrados} encontrado(s), {qtdGravados} gravado(s)
-                {qtdDuplicados > 0 && ` (${qtdDuplicados} duplicado(s))`}, {qtdFalhas} sem resultado.
+                {qtdDuplicados > 0 && ` (${qtdDuplicados} duplicado(s))`}
+                {qtdAguardando > 0 && `, ${qtdAguardando} aguardando`}, {qtdFalhas} sem resultado.
               </span>
               <button
                 type="button"
@@ -703,7 +818,9 @@ export default function AutomacaoGdisPage() {
         {!loading && !error && itens.length === 0 && (
           <div className="flex flex-col items-center justify-center gap-2 py-12 text-slate-400">
             <CheckCircle2 size={32} className="text-emerald-400" />
-            <p className="text-sm font-bold text-slate-600">Nenhum medidor pendente com serviço conhecido!</p>
+            <p className="text-sm font-bold text-slate-600">
+              Nada pendente — nem na recuperação, nem na Conferência!
+            </p>
           </div>
         )}
 
@@ -711,8 +828,34 @@ export default function AutomacaoGdisPage() {
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shrink-0">
             <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-3 flex-wrap">
               <span className="text-xs text-slate-600">
-                <strong className="text-slate-900">{selecionados.length}</strong> selecionado(s) de {itens.length}
+                <strong className="text-slate-900">{selecionados.length}</strong> selecionado(s) de {itensVisiveis.length}
               </span>
+
+              {/* Filtro de fila — não separa a operação, só a visão. */}
+              <div className="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5">
+                {(
+                  [
+                    ["todas", `Todas (${itens.length})`],
+                    ["RECUPERACAO", `Recuperação (${qtdRecuperacao})`],
+                    ["CONFERENCIA", `Conferência (${qtdConferencia})`],
+                  ] as [FiltroFila, string][]
+                ).map(([valor, rotulo]) => (
+                  <button
+                    key={valor}
+                    type="button"
+                    onClick={() => {
+                      setFiltroFila(valor);
+                      setPagina(1);
+                    }}
+                    disabled={rodando}
+                    className={`px-2.5 py-1 text-xs font-bold rounded-md transition-colors disabled:opacity-40 ${
+                      filtroFila === valor ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"
+                    }`}
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              </div>
 
               <div className="ml-auto flex items-center gap-2">
                 <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wide">Selecionar</span>
@@ -744,150 +887,187 @@ export default function AutomacaoGdisPage() {
                   disabled={rodando}
                   className="text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-40"
                 >
-                  {itens.every((i) => selecionados.includes(i.medidorId)) ? "Desmarcar todos" : `Todos (${itens.length})`}
+                  {itensVisiveis.every((i) => selecionados.includes(i.chave))
+                    ? "Desmarcar todos"
+                    : `Todos (${itensVisiveis.length})`}
                 </button>
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-white border-b border-slate-100">
-                    <th className="w-10 px-3 py-2"></th>
-                    <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Serviço</th>
-                    <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Matrícula</th>
-                    <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Colaborador</th>
-                    <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Equipamento</th>
-                    <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Serial encontrado</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {itensPagina.map((item) => {
-                    const st = status[item.medidorId];
-                    const sel = selecionados.includes(item.medidorId);
-                    const serialEditado = seriaisEditados[item.medidorId] ?? "";
-
-                    return (
-                      <tr
-                        key={item.medidorId}
-                        className={`border-b border-slate-50 last:border-0 transition-colors ${
-                          sel ? "bg-blue-50/40" : "hover:bg-slate-50"
-                        }`}
-                      >
-                        <td className="px-3 py-2.5">
-                          <input
-                            type="checkbox"
-                            checked={sel}
-                            disabled={rodando}
-                            onChange={() => toggleSelecionado(item.medidorId)}
-                            className="w-4 h-4 accent-blue-600"
-                          />
-                        </td>
-                        <td className="px-4 py-2.5 font-mono text-sm font-bold text-slate-800 whitespace-nowrap">
-                          {item.servicoGdis}
-                        </td>
-                        <td className="px-4 py-2.5 text-xs text-slate-600 font-mono whitespace-nowrap">{item.matricula}</td>
-                        <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[150px] truncate">{item.colaborador}</td>
-                        <td className="px-4 py-2.5 text-xs text-slate-500 max-w-[170px] truncate" title={item.tipoEquipamento}>
-                          {item.tipoEquipamento}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          {st?.tipo === "gravado" && st.duplicado ? (
-                            <span
-                              className="inline-flex items-center gap-1.5 px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-bold rounded-lg"
-                              title="Gravado, mas esse serial já existe em outra linha. Revisar duplicidade depois."
-                            >
-                              <AlertTriangle size={12} />
-                              {st.serial} (duplicado)
-                            </span>
-                          ) : st?.tipo === "gravado" ? (
-                            <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold rounded-lg">
-                              <CheckCircle2 size={12} />
-                              {st.serial}
-                            </span>
-                          ) : st?.tipo === "consultando" ? (
-                            <span className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-semibold">
-                              <Loader2 size={12} className="animate-spin" />
-                              Consultando…
-                            </span>
-                          ) : st?.tipo === "erro" || st?.tipo === "vazio" ? (
-                            <span className="text-[11px] text-amber-700" title={st.msg}>
-                              {st.tipo === "vazio" ? "Sem serial no GDIS" : "Erro"}
-                            </span>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <input
-                                type="text"
-                                value={serialEditado}
-                                onChange={(e) =>
-                                  setSeriaisEditados((prev) => ({ ...prev, [item.medidorId]: e.target.value }))
-                                }
-                                placeholder="—"
-                                className="w-36 px-2 py-1 border border-slate-300 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
-                              />
-                              <button
-                                type="button"
-                                onClick={() => gravarSerial(item.medidorId, serialEditado.trim(), "MANUAL")}
-                                disabled={!serialEditado.trim()}
-                                title="Gravar este serial"
-                                className="flex items-center gap-1 px-2.5 py-1 bg-[#1e3a5f] text-white text-xs font-bold rounded-lg hover:bg-[#2d5282] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                              >
-                                <Check size={12} />
-                              </button>
-                            </div>
-                          )}
-                        </td>
+            {itensVisiveis.length === 0 ? (
+              <p className="px-4 py-8 text-center text-sm text-slate-400">Nenhum item nessa fila.</p>
+            ) : (
+              <>
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-white border-b border-slate-100">
+                        <th className="w-10 px-3 py-2"></th>
+                        <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Fila</th>
+                        <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Serviço</th>
+                        <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Matrícula</th>
+                        <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Colaborador</th>
+                        <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Equipamento</th>
+                        <th className="px-4 py-2 text-left text-xs font-bold text-slate-400 uppercase tracking-wide">Serial encontrado</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {itensPagina.map((item) => {
+                        const st = status[item.chave];
+                        const sel = selecionados.includes(item.chave);
+                        const serialEditado = seriaisEditados[item.chave] ?? "";
+                        const deRecuperacao = item.origem === "RECUPERACAO";
 
-            <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex items-center gap-3">
-              <span className="text-xs text-slate-500">
-                {(pagina - 1) * TAMANHO_PAGINA + 1}–{Math.min(pagina * TAMANHO_PAGINA, itens.length)} de {itens.length}
-              </span>
-              <div className="ml-auto flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPagina(1)}
-                  disabled={pagina === 1}
-                  className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
-                >
-                  «
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPagina((p) => Math.max(1, p - 1))}
-                  disabled={pagina === 1}
-                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
-                >
-                  <ChevronLeft size={13} />
-                  Anterior
-                </button>
-                <span className="text-xs text-slate-600 font-semibold tabular-nums">
-                  {pagina} / {totalPaginas}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
-                  disabled={pagina >= totalPaginas}
-                  className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
-                >
-                  Próxima
-                  <ChevronRight size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPagina(totalPaginas)}
-                  disabled={pagina >= totalPaginas}
-                  className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
-                >
-                  »
-                </button>
-              </div>
-            </div>
+                        return (
+                          <tr
+                            key={item.chave}
+                            className={`border-b border-slate-50 last:border-0 transition-colors ${
+                              sel ? "bg-blue-50/40" : "hover:bg-slate-50"
+                            }`}
+                          >
+                            <td className="px-3 py-2.5">
+                              <input
+                                type="checkbox"
+                                checked={sel}
+                                disabled={rodando}
+                                onChange={() => toggleSelecionado(item.chave)}
+                                className="w-4 h-4 accent-blue-600"
+                              />
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <span
+                                className={`inline-block px-1.5 py-0.5 text-[10px] font-bold rounded ${
+                                  deRecuperacao
+                                    ? "bg-violet-50 text-violet-700 border border-violet-200"
+                                    : "bg-blue-50 text-blue-700 border border-blue-200"
+                                }`}
+                              >
+                                {ROTULO_FILA[item.origem]}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 font-mono text-sm font-bold text-slate-800 whitespace-nowrap">
+                              {item.servicoGdis}
+                            </td>
+                            <td className="px-4 py-2.5 text-xs text-slate-600 font-mono whitespace-nowrap">
+                              {item.matricula ?? <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[150px] truncate">
+                              {deRecuperacao ? item.colaborador : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td
+                              className="px-4 py-2.5 text-xs text-slate-500 max-w-[170px] truncate"
+                              title={deRecuperacao ? item.tipoEquipamento : undefined}
+                            >
+                              {deRecuperacao ? item.tipoEquipamento : <span className="text-slate-300">—</span>}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              {st?.tipo === "gravado" && st.duplicado ? (
+                                <span
+                                  className="inline-flex items-center gap-1.5 px-2 py-1 bg-amber-50 border border-amber-200 text-amber-700 text-[11px] font-bold rounded-lg"
+                                  title="Gravado, mas esse serial já existe em outra linha. Revisar duplicidade depois."
+                                >
+                                  <AlertTriangle size={12} />
+                                  {st.serial} (duplicado)
+                                </span>
+                              ) : st?.tipo === "gravado" ? (
+                                <span className="inline-flex items-center gap-1.5 px-2 py-1 bg-emerald-50 border border-emerald-200 text-emerald-700 text-xs font-bold rounded-lg">
+                                  <CheckCircle2 size={12} />
+                                  {st.serial}
+                                </span>
+                              ) : st?.tipo === "aguardando" ? (
+                                <span
+                                  className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-bold rounded-lg"
+                                  title="Serial não bate com nenhum medidor pendente no cadastro. Serviço segue aguardando na Conferência."
+                                >
+                                  <Clock size={12} />
+                                  {st.serial} (aguardando)
+                                </span>
+                              ) : st?.tipo === "consultando" ? (
+                                <span className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-semibold">
+                                  <Loader2 size={12} className="animate-spin" />
+                                  Consultando…
+                                </span>
+                              ) : st?.tipo === "erro" || st?.tipo === "vazio" ? (
+                                <span className="text-[11px] text-amber-700" title={st.msg}>
+                                  {st.tipo === "vazio" ? "Sem serial no GDIS" : "Erro"}
+                                </span>
+                              ) : (
+                                <div className="flex items-center gap-2">
+                                  <input
+                                    type="text"
+                                    value={serialEditado}
+                                    onChange={(e) =>
+                                      setSeriaisEditados((prev) => ({ ...prev, [item.chave]: e.target.value }))
+                                    }
+                                    placeholder="—"
+                                    className="w-36 px-2 py-1 border border-slate-300 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => gravarSerial(item.chave, serialEditado.trim(), "MANUAL")}
+                                    disabled={!serialEditado.trim()}
+                                    title="Gravar este serial"
+                                    className="flex items-center gap-1 px-2.5 py-1 bg-[#1e3a5f] text-white text-xs font-bold rounded-lg hover:bg-[#2d5282] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                                  >
+                                    <Check size={12} />
+                                  </button>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex items-center gap-3">
+                  <span className="text-xs text-slate-500">
+                    {(pagina - 1) * TAMANHO_PAGINA + 1}–{Math.min(pagina * TAMANHO_PAGINA, itensVisiveis.length)} de{" "}
+                    {itensVisiveis.length}
+                  </span>
+                  <div className="ml-auto flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPagina(1)}
+                      disabled={pagina === 1}
+                      className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
+                    >
+                      «
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPagina((p) => Math.max(1, p - 1))}
+                      disabled={pagina === 1}
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
+                    >
+                      <ChevronLeft size={13} />
+                      Anterior
+                    </button>
+                    <span className="text-xs text-slate-600 font-semibold tabular-nums">
+                      {pagina} / {totalPaginas}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setPagina((p) => Math.min(totalPaginas, p + 1))}
+                      disabled={pagina >= totalPaginas}
+                      className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
+                    >
+                      Próxima
+                      <ChevronRight size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPagina(totalPaginas)}
+                      disabled={pagina >= totalPaginas}
+                      className="px-2 py-1 text-xs font-bold text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-30"
+                    >
+                      »
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -923,6 +1103,7 @@ export default function AutomacaoGdisPage() {
                           {e.conflitos > 0 && (
                             <span className="text-amber-700">{e.conflitos} duplicado(s)</span>
                           )}
+                          {e.aguardando > 0 && <span className="text-blue-700">{e.aguardando} aguardando</span>}
                           {e.vazios > 0 && <span className="text-amber-700">{e.vazios} sem serial</span>}
                           {e.erros > 0 && <span className="text-amber-700">{e.erros} erro(s)</span>}
                           {e.encontrados > 0 && <span className="text-blue-700">{e.encontrados} não gravado(s)</span>}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import * as XLSX from "xlsx";
 import {
   ClipboardCopy,
   Link2,
@@ -16,6 +17,7 @@ import {
   Pencil,
   Undo2,
   Trash2,
+  Download,
 } from "lucide-react";
 import {
   getServicosConferencia,
@@ -468,6 +470,7 @@ export default function ConferenciaPage() {
   const [pageAguardando, setPageAguardando] = useState(1);
   const [loadingAguardando, setLoadingAguardando] = useState(true);
   const [errorAguardando, setErrorAguardando] = useState<string | null>(null);
+  const [exportandoAguardando, setExportandoAguardando] = useState(false);
 
   // ── Estado: verificação ───────────────────────────────────────────────────
   const [verificando, setVerificando] = useState(false);
@@ -510,6 +513,28 @@ export default function ConferenciaPage() {
     loadServicos(pageServicos);
     loadAguardando(pageAguardando);
   }, [loadServicos, loadAguardando, pageServicos, pageAguardando]);
+
+  const handleExportarAguardando = useCallback(async () => {
+    setExportandoAguardando(true);
+    try {
+      const { data } = await getServicosAguardandoVinculacao(1, Math.max(totalAguardando, 1));
+      const planilha = data.map((s) => ({
+        "Nº Serviço": s.servico,
+        "Término": s.termino ? new Date(s.termino).toLocaleDateString("pt-BR") : "",
+        "Serial Buscado": s.serial_buscado,
+        "Matrícula": s.matricula ?? "",
+        "Importado em": s.imported_at ? new Date(s.imported_at).toLocaleDateString("pt-BR") : "",
+      }));
+      const ws = XLSX.utils.json_to_sheet(planilha);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Aguardando vinculação");
+      XLSX.writeFile(wb, `aguardando_vinculacao_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (err) {
+      addToast("error", err instanceof Error ? err.message : "Erro ao exportar.");
+    } finally {
+      setExportandoAguardando(false);
+    }
+  }, [totalAguardando, addToast]);
 
   useEffect(() => { loadServicos(pageServicos); }, [pageServicos, loadServicos]);
   useEffect(() => { loadAguardando(pageAguardando); }, [pageAguardando, loadAguardando]);
@@ -782,10 +807,23 @@ export default function ConferenciaPage() {
                 — serial informado, mas medidor ainda não entrou no sistema
               </span>
               {!loadingAguardando && (
-                <span className="ml-auto text-xs text-amber-500">
+                <span className="text-xs text-amber-500">
                   {totalAguardando} serviço{totalAguardando !== 1 ? "s" : ""}
                 </span>
               )}
+              <button
+                type="button"
+                onClick={handleExportarAguardando}
+                disabled={exportandoAguardando || totalAguardando === 0}
+                title="Exportar para Excel"
+                className="ml-auto p-1.5 text-amber-600 hover:bg-amber-100 rounded-md transition-colors disabled:opacity-40"
+              >
+                {exportandoAguardando ? (
+                  <Loader2 size={14} className="animate-spin" />
+                ) : (
+                  <Download size={14} />
+                )}
+              </button>
             </div>
 
             {loadingAguardando && (

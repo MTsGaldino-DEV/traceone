@@ -269,14 +269,41 @@ export type MedidorUpdatePayload = Partial<Omit<Medidor, 'servico_gdis' | 'data_
   data_conclusao?: string | null;
 };
 
+/** O número do serviço GDIS informado não existe em servicos_report (ainda não foi importado). */
+export class ServicoGdisInexistenteError extends Error {}
+
+function traduzirErroFkServicoGdis(error: { code?: string; message: string }, servicoGdis: string | null | undefined): Error {
+  if (error.code === '23503' && servicoGdis && error.message.includes('medidores_list_servico_gdis_fkey')) {
+    return new ServicoGdisInexistenteError(
+      `Serviço GDIS ${servicoGdis} não foi encontrado nos relatórios importados. Confira o número ou importe o relatório desse serviço antes de vincular.`
+    );
+  }
+  return new Error(error.message);
+}
+
+/**
+ * Cria o serviço em servicos_report se ele ainda não existe (vínculo manual
+ * não depende de o serviço já ter vindo no relatório importado).
+ */
+async function garantirServicoReport(servico: string, serial?: string | null): Promise<void> {
+  const { error } = await supabase.rpc('garantir_servico_report', {
+    p_servico: servico,
+    p_serial: serial ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function updateMedidor(id: string, payload: MedidorUpdatePayload): Promise<Medidor> {
+  if (payload.servico_gdis) {
+    await garantirServicoReport(payload.servico_gdis, payload.serial);
+  }
   const { data, error } = await supabase
     .from('medidores_list')
     .update(payload)
     .eq('id', id)
     .select()
     .single();
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErroFkServicoGdis(error, payload.servico_gdis);
   return data as Medidor;
 }
 
@@ -931,6 +958,9 @@ export async function reverterOcultarMedidor45Dias(medidorId: string): Promise<v
 }
 
 export async function vincularServicoGdisMedidor(id: string, servicoGdis: string | null): Promise<void> {
+  if (servicoGdis) {
+    await garantirServicoReport(servicoGdis);
+  }
   const { error } = await supabase
     .from('medidores_list')
     .update({
@@ -939,7 +969,7 @@ export async function vincularServicoGdisMedidor(id: string, servicoGdis: string
       data_conclusao: new Date().toISOString().slice(0, 10),
     })
     .eq('id', id);
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErroFkServicoGdis(error, servicoGdis);
 }
 
 // ─── Duplicidade: dois critérios ─────────────────────────────────────────────

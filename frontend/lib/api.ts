@@ -386,48 +386,81 @@ export async function importServicos(
   return { ok: true, imported: payload.length };
 }
 
+// A lista pode encolher entre o carregamento e a troca de página (importação,
+// vinculação automática, exclusão). Quando isso acontece o PostgREST devolve
+// PGRST103 ("Requested range not satisfiable") em vez de uma página vazia, então
+// refazemos a busca na primeira página e devolvemos a página efetiva.
+async function buscarServicosPorStatus<T>(
+  status: string,
+  page: number,
+  pageSize: number
+): Promise<{ data: T[]; total: number; page: number }> {
+  const consultar = (p: number) => {
+    const from = (p - 1) * pageSize;
+    return supabase
+      .from('servicos_report')
+      .select('*', { count: 'exact' })
+      .eq('status_conferencia', status)
+      .order('imported_at', { ascending: false })
+      .range(from, from + pageSize - 1);
+  };
+
+  let paginaEfetiva = page;
+  let { data, error, count } = await consultar(paginaEfetiva);
+
+  if (error?.code === 'PGRST103' && paginaEfetiva !== 1) {
+    paginaEfetiva = 1;
+    ({ data, error, count } = await consultar(paginaEfetiva));
+  }
+
+  if (error) throw new Error(error.message);
+  return { data: (data ?? []) as T[], total: count ?? 0, page: paginaEfetiva };
+}
+
 export async function getServicosConferencia(
   page = 1,
   pageSize = 200
-): Promise<{ data: ServicoReportConferencia[]; total: number }> {
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-
-  const { data, error, count } = await supabase
-    .from('servicos_report')
-    .select('*', { count: 'exact' })
-    .eq('status_conferencia', 'PENDENTE')
-    .order('imported_at', { ascending: false })
-    .range(from, to);
-
-  if (error) throw new Error(error.message);
-  return { data: (data ?? []) as ServicoReportConferencia[], total: count ?? 0 };
+): Promise<{ data: ServicoReportConferencia[]; total: number; page: number }> {
+  return buscarServicosPorStatus<ServicoReportConferencia>('PENDENTE', page, pageSize);
 }
 
 export async function getServicosAguardandoVinculacao(
   page = 1,
   pageSize = 200
-): Promise<{ data: ServicoReportAguardando[]; total: number }> {
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-
-  const { data, error, count } = await supabase
-    .from('servicos_report')
-    .select('*', { count: 'exact' })
-    .eq('status_conferencia', 'AGUARDANDO_VINCULACAO')
-    .order('imported_at', { ascending: false })
-    .range(from, to);
-
-  if (error) throw new Error(error.message);
-  return { data: (data ?? []) as ServicoReportAguardando[], total: count ?? 0 };
+): Promise<{ data: ServicoReportAguardando[]; total: number; page: number }> {
+  return buscarServicosPorStatus<ServicoReportAguardando>('AGUARDANDO_VINCULACAO', page, pageSize);
 }
 
+/** Exclusão bloqueada porque o serviço já tem medidor vinculado (tela desatualizada). */
+export class ServicoVinculadoError extends Error {}
+
 export async function deleteServicoReport(servicoId: string): Promise<void> {
+  // medidores_list.servico_gdis referencia servicos_report(servico) sem ON DELETE,
+  // então excluir um serviço já vinculado estoura erro de chave estrangeira. Isso
+  // acontece quando a tela está desatualizada e o medidor entrou no sistema depois.
+  const { data: vinculados, error: erroConsulta } = await supabase
+    .from('medidores_list')
+    .select('serial')
+    .eq('servico_gdis', servicoId)
+    .limit(1);
+  if (erroConsulta) throw new Error(erroConsulta.message);
+
+  if (vinculados && vinculados.length > 0) {
+    throw new ServicoVinculadoError(
+      `Este serviço já foi vinculado ao medidor ${vinculados[0].serial} e não pode ser excluído.`
+    );
+  }
+
   const { error } = await supabase
     .from('servicos_report')
     .delete()
     .eq('servico', servicoId);
-  if (error) throw new Error(error.message);
+  if (error) {
+    if (error.code === '23503') {
+      throw new ServicoVinculadoError('Este serviço foi vinculado a um medidor agora há pouco e não pode ser excluído.');
+    }
+    throw new Error(error.message);
+  }
 }
 
 export async function reverterServicoPendente(servicoId: string): Promise<void> {

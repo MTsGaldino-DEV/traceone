@@ -24,6 +24,7 @@ import {
   vincularServicoMedidor,
   reverterServicoPendente,
   deleteServicoReport,
+  ServicoVinculadoError,
 } from "../../../../lib/api";
 import type {
   ServicoReportConferencia,
@@ -66,6 +67,7 @@ interface RowProps {
   onVinculado: (servicoId: string) => void;
   onAguardando: (servicoId: string) => void;
   onExcluido: (servicoId: string) => void;
+  onDesatualizado: () => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
   isNext: boolean;
   copyBtnRef?: (el: HTMLButtonElement | null) => void;
@@ -76,6 +78,7 @@ function ConferenciaRow({
   onVinculado,
   onAguardando,
   onExcluido,
+  onDesatualizado,
   addToast,
   isNext,
   copyBtnRef,
@@ -148,6 +151,12 @@ function ConferenciaRow({
       addToast("info", `Serviço ${servico.servico} excluído.`);
       onExcluido(servico.servico);
     } catch (err) {
+      if (err instanceof ServicoVinculadoError) {
+        // A lista estava desatualizada: o medidor entrou no sistema depois do carregamento.
+        addToast("error", `${err.message} Lista atualizada.`);
+        onDesatualizado();
+        return;
+      }
       setErro(err instanceof Error ? err.message : "Erro ao excluir.");
       setExcluindo(false);
     }
@@ -278,10 +287,11 @@ interface AguardandoRowProps {
   onVinculado: (servicoId: string) => void;
   onRevertido: (servicoId: string) => void;
   onExcluido: (servicoId: string) => void;
+  onDesatualizado: () => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
 }
 
-function AguardandoRow({ servico, onVinculado, onRevertido, onExcluido, addToast }: AguardandoRowProps) {
+function AguardandoRow({ servico, onVinculado, onRevertido, onExcluido, onDesatualizado, addToast }: AguardandoRowProps) {
   const [editando, setEditando] = useState(false);
   const [novoSerial, setNovoSerial] = useState(servico.serial_buscado);
   const [salvando, setSalvando] = useState(false);
@@ -352,6 +362,12 @@ function AguardandoRow({ servico, onVinculado, onRevertido, onExcluido, addToast
       addToast("info", `Serviço ${servico.servico} excluído.`);
       onExcluido(servico.servico);
     } catch (err) {
+      if (err instanceof ServicoVinculadoError) {
+        // A lista estava desatualizada: o medidor entrou no sistema depois do carregamento.
+        addToast("error", `${err.message} Lista atualizada.`);
+        onDesatualizado();
+        return;
+      }
       setErro(err instanceof Error ? err.message : "Erro ao excluir.");
       setExcluindo(false);
     }
@@ -464,9 +480,10 @@ export default function ConferenciaPage() {
     setLoadingServicos(true);
     setErrorServicos(null);
     try {
-      const { data, total } = await getServicosConferencia(page, PAGE_SIZE);
+      const { data, total, page: paginaEfetiva } = await getServicosConferencia(page, PAGE_SIZE);
       setServicos(data);
       setTotalServicos(total);
+      if (paginaEfetiva !== page) setPageServicos(paginaEfetiva);
     } catch (err) {
       setErrorServicos(err instanceof Error ? err.message : "Erro ao carregar.");
     } finally {
@@ -478,9 +495,10 @@ export default function ConferenciaPage() {
     setLoadingAguardando(true);
     setErrorAguardando(null);
     try {
-      const { data, total } = await getServicosAguardandoVinculacao(page, PAGE_SIZE);
+      const { data, total, page: paginaEfetiva } = await getServicosAguardandoVinculacao(page, PAGE_SIZE);
       setAguardando(data);
       setTotalAguardando(total);
+      if (paginaEfetiva !== page) setPageAguardando(paginaEfetiva);
     } catch (err) {
       setErrorAguardando(err instanceof Error ? err.message : "Erro ao carregar.");
     } finally {
@@ -731,6 +749,7 @@ export default function ConferenciaPage() {
                       onVinculado={handleVinculado}
                       onAguardando={handleAguardando}
                       onExcluido={handleExcluido}
+                      onDesatualizado={reloadAll}
                       addToast={addToast}
                       isNext={idx === 0}
                       copyBtnRef={(el) => copyBtnRefs.current.set(s.servico, el)}
@@ -819,6 +838,7 @@ export default function ConferenciaPage() {
                         onVinculado={handleVinculadoDeAguardando}
                         onRevertido={handleRevertido}
                         onExcluido={handleExcluidoDeAguardando}
+                        onDesatualizado={reloadAll}
                         addToast={addToast}
                       />
                     ))}

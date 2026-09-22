@@ -350,6 +350,31 @@ export type ImportServicosResult =
   | { ok: false; matriculasNaoCadastradas: MatriculaNaoCadastrada[] };
 
 /**
+ * Matrícula iniciada em "C" é de terceiro: nunca entra no cadastro de
+ * colaboradores, então não bloqueia a importação nem é gravada.
+ */
+function matriculaDeTerceiro(matricula?: string | null): boolean {
+  return !!matricula && matricula.trim().toUpperCase().startsWith('C');
+}
+
+function normalizarMatricula(matricula?: string | null): string | null {
+  const m = matricula?.trim().toLowerCase();
+  if (!m || matriculaDeTerceiro(m)) return null;
+  return m;
+}
+
+/** Colunas de servicos_report: `nome` vem da planilha mas não existe na tabela. */
+function payloadServicos(rows: ServicoImportInput[]) {
+  return rows.map((r) => ({
+    servico: r.servico,
+    matricula: normalizarMatricula(r.matricula),
+    termino: r.termino,
+    cod_serv: r.cod_serv,
+    tipo_serv: r.tipo_serv,
+  }));
+}
+
+/**
  * servicos_report.matricula e FK para colaboradores: uma unica matricula nao
  * cadastrada derruba o lote inteiro no banco, com erro incompreensivel. Entao
  * conferimos antes e, se faltar alguem, nao importamos nada e devolvemos quem
@@ -361,7 +386,7 @@ export async function importServicos(
   // guarda o nome da planilha por matricula, para identificar o colaborador no aviso
   const nomePorMatricula = new Map<string, string>();
   for (const r of rows) {
-    const mat = r.matricula?.trim().toLowerCase();
+    const mat = normalizarMatricula(r.matricula);
     if (!mat) continue;
     const nome = r.nome?.trim();
     if (nome && !nomePorMatricula.has(mat)) nomePorMatricula.set(mat, nome);
@@ -370,7 +395,7 @@ export async function importServicos(
   const distintas = Array.from(
     new Set(
       rows
-        .map((r) => r.matricula?.trim().toLowerCase())
+        .map((r) => normalizarMatricula(r.matricula))
         .filter((m): m is string => !!m)
     )
   );
@@ -396,14 +421,7 @@ export async function importServicos(
     };
   }
 
-  // colunas explicitas: `nome` vem da planilha mas nao existe em servicos_report
-  const payload = rows.map((r) => ({
-    servico: r.servico,
-    matricula: r.matricula?.trim().toLowerCase() ?? null,
-    termino: r.termino,
-    cod_serv: r.cod_serv,
-    tipo_serv: r.tipo_serv,
-  }));
+  const payload = payloadServicos(rows);
 
   const { error } = await supabase
     .from('servicos_report')
@@ -411,6 +429,21 @@ export async function importServicos(
   if (error) throw new Error(error.message);
 
   return { ok: true, imported: payload.length };
+}
+
+/**
+ * Importa ignorando a trava de matrícula não cadastrada: quem não existe em
+ * colaboradores entra sem matrícula. Restrito a SUPERVISOR, GESTOR e ADMIN —
+ * a checagem de verdade é feita no banco, dentro da RPC.
+ */
+export async function importServicosForcado(
+  rows: ServicoImportInput[]
+): Promise<{ imported: number }> {
+  const { data, error } = await supabase.rpc('importar_servicos_forcado', {
+    p_itens: payloadServicos(rows),
+  });
+  if (error) throw new Error(error.message);
+  return { imported: (data as number) ?? 0 };
 }
 
 // A lista pode encolher entre o carregamento e a troca de página (importação,

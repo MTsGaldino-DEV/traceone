@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import {
   UploadCloud,
@@ -22,6 +22,8 @@ import {
 import * as XLSX from "xlsx";
 import {
   importServicos,
+  importServicosForcado,
+  getProfile,
   getMedidoresParaSync,
   syncAtribuicoes,
   getColaboradores,
@@ -29,7 +31,8 @@ import {
   importarPlanilhaPC,
 } from "../../../../lib/api";
 import type { MedidorParaSync, MedidorParaPC, ResultadoPC, MatriculaNaoCadastrada } from "../../../../lib/api";
-import type { Colaborador } from "../../../../lib/supabase";
+import type { Colaborador, Role } from "../../../../lib/supabase";
+import { canForcarImportacao } from "../../../../lib/permissions";
 
 // ═══════════════════════════════════════════════════════════════════
 // SEÇÃO GDIS — tipos e lógica
@@ -534,6 +537,11 @@ function GdisTab() {
   const [importError, setImportError] = useState<string | null>(null);
   const [importSuccess, setImportSuccess] = useState<number | null>(null);
   const [matriculasFaltantes, setMatriculasFaltantes] = useState<MatriculaNaoCadastrada[]>([]);
+  const [role, setRole] = useState<Role | null>(null);
+
+  useEffect(() => {
+    getProfile().then((p) => setRole(p?.role ?? null)).catch(() => setRole(null));
+  }, []);
 
   const processFile = useCallback((f: File) => {
     setFile(f); setParsed(null); setImportError(null); setImportSuccess(null);
@@ -570,6 +578,23 @@ function GdisTab() {
       setTimeout(() => router.push("/dashboard/conferencia"), 1500);
     } catch (err) {
       setImportError(err instanceof Error ? err.message : "Erro ao importar.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // Importa mesmo com matrícula não cadastrada: esses serviços entram sem
+  // colaborador. Só aparece para supervisor pra cima, e a RPC confere de novo.
+  const handleForcarImport = async () => {
+    if (!parsed || parsed.rows.length === 0) return;
+    setImporting(true); setImportError(null);
+    try {
+      const { imported } = await importServicosForcado(parsed.rows);
+      setMatriculasFaltantes([]);
+      setImportSuccess(imported);
+      setTimeout(() => router.push("/dashboard/conferencia"), 1500);
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "Erro ao forçar a importação.");
     } finally {
       setImporting(false);
     }
@@ -617,12 +642,31 @@ function GdisTab() {
                 O que fazer: cadastre {matriculasFaltantes.length === 1 ? "esse colaborador" : "esses colaboradores"} em
                 Colaboradores e importe a planilha novamente.
               </p>
-              <button
-                onClick={() => router.push("/dashboard/colaboradores")}
-                className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg"
-              >
-                Cadastrar colaborador
-              </button>
+              <div className="flex flex-wrap items-center gap-2 mt-3">
+                <button
+                  onClick={() => router.push("/dashboard/colaboradores")}
+                  className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-lg"
+                >
+                  Cadastrar colaborador
+                </button>
+                {canForcarImportacao(role) && (
+                  <button
+                    onClick={handleForcarImport}
+                    disabled={importing}
+                    title="Importa mesmo assim: esses serviços entram sem colaborador"
+                    className="flex items-center gap-1.5 px-4 py-2 bg-white hover:bg-red-100 text-red-700 border border-red-300 text-sm font-bold rounded-lg disabled:opacity-50"
+                  >
+                    {importing ? <Loader2 size={14} className="animate-spin" /> : <AlertTriangle size={14} />}
+                    Forçar importação
+                  </button>
+                )}
+              </div>
+              {canForcarImportacao(role) && (
+                <p className="text-xs text-red-600 mt-2">
+                  Forçar importa tudo, mas {matriculasFaltantes.length === 1 ? "esse serviço fica" : "esses serviços ficam"} sem
+                  colaborador até a matrícula ser cadastrada.
+                </p>
+              )}
             </div>
             <button onClick={() => setMatriculasFaltantes([])} className="text-red-400 hover:text-red-600"><X size={16} /></button>
           </div>

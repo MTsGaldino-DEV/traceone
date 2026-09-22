@@ -20,6 +20,11 @@ export function canWrite(role?: Role | null): boolean {
   return !!role && WRITE_ROLES.includes(role);
 }
 
+/** Passar por cima da trava de matrícula não cadastrada no import do GDIS. */
+export function canForcarImportacao(role?: Role | null): boolean {
+  return !!role && MANAGER_ROLES.includes(role);
+}
+
 export const roleLabels: Record<Role, string> = {
   ADMIN: "Administrador",
   GESTOR: "Gestor",

@@ -13,6 +13,7 @@ import {
   ArrowDown,
   EyeOff,
   Undo2,
+  Search,
 } from "lucide-react";
 import {
   getMedidoresConferencia45Dias,
@@ -249,16 +250,27 @@ export default function Conferencia45DiasPage() {
   const [error, setError] = useState<string | null>(null);
   const [ocultos, setOcultos] = useState<MedidorConferencia45DiasOculto[]>([]);
   const [mexendoId, setMexendoId] = useState<string | null>(null);
+  const [serialInput, setSerialInput] = useState("");
+  const [serialFilter, setSerialFilter] = useState("");
 
   const { toasts, addToast } = useToasts();
 
+  // Debounce: só busca 400ms depois de parar de digitar.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setSerialFilter(serialInput.trim());
+      setPage(1);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [serialInput]);
+
   // A lista já vem do banco sem os ocultos, então a paginação bate com a tela.
-  const load = useCallback(async (p: number, ascending: boolean) => {
+  const load = useCallback(async (p: number, ascending: boolean, serial: string) => {
     setLoading(true);
     setError(null);
     try {
       const [lista, listaOcultos] = await Promise.all([
-        getMedidoresConferencia45Dias(p, PAGE_SIZE, ascending),
+        getMedidoresConferencia45Dias(p, PAGE_SIZE, ascending, 45, serial),
         getConferencia45DiasOcultos(),
       ]);
       setMedidores(lista.data);
@@ -272,8 +284,8 @@ export default function Conferencia45DiasPage() {
   }, []);
 
   useEffect(() => {
-    load(page, diasAscending);
-  }, [page, diasAscending, load]);
+    load(page, diasAscending, serialFilter);
+  }, [page, diasAscending, serialFilter, load]);
 
   const handleToggleSort = () => {
     setDiasAscending((prev) => !prev);
@@ -292,14 +304,14 @@ export default function Conferencia45DiasPage() {
       try {
         await ocultarMedidor45Dias(id);
         addToast("info", `Medidor ${alvo?.serial ?? ""} ocultado para toda a equipe.`);
-        await load(page, diasAscending);
+        await load(page, diasAscending, serialFilter);
       } catch (err) {
         addToast("error", err instanceof Error ? err.message : "Erro ao ocultar.");
       } finally {
         setMexendoId(null);
       }
     },
-    [medidores, addToast, load, page, diasAscending]
+    [medidores, addToast, load, page, diasAscending, serialFilter]
   );
 
   const handleReverter = useCallback(
@@ -309,18 +321,18 @@ export default function Conferencia45DiasPage() {
       try {
         await reverterOcultarMedidor45Dias(id);
         addToast("info", `Medidor ${alvo?.serial ?? ""} voltou para a conferência.`);
-        await load(page, diasAscending);
+        await load(page, diasAscending, serialFilter);
       } catch (err) {
         addToast("error", err instanceof Error ? err.message : "Erro ao reverter.");
       } finally {
         setMexendoId(null);
       }
     },
-    [ocultos, addToast, load, page, diasAscending]
+    [ocultos, addToast, load, page, diasAscending, serialFilter]
   );
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-  const reload = () => load(page, diasAscending);
+  const reload = () => load(page, diasAscending, serialFilter);
 
   return (
     <div className="flex flex-col h-full">
@@ -356,6 +368,17 @@ export default function Conferencia45DiasPage() {
           <p className="text-xs text-slate-500 mt-0.5">
             Medidores pendentes há mais de 45 dias. Consulte no GDIS e informe o número do serviço.
           </p>
+        </div>
+
+        <div className="relative">
+          <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input
+            type="text"
+            value={serialInput}
+            onChange={(e) => setSerialInput(e.target.value)}
+            placeholder="Buscar serial…"
+            className="w-48 h-9 pl-8 pr-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 font-mono"
+          />
         </div>
 
         {total > 0 && (

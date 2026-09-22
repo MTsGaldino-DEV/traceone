@@ -918,13 +918,15 @@ export async function getMedidoresConferencia45Dias(
   page = 1,
   pageSize = 100,
   diasAscending = false,
-  diasLimite = 45
+  diasLimite = 45,
+  serial?: string
 ): Promise<{ data: MedidorConferencia45Dias[]; total: number }> {
   const { data, error } = await supabase.rpc('get_conferencia_45dias', {
     p_page: page,
     p_page_size: pageSize,
     p_asc: diasAscending,
     p_dias: diasLimite,
+    p_serial: serial?.trim() || null,
   });
   if (error) throw new Error(error.message);
   const r = data as { data: MedidorConferencia45Dias[]; total: number } | null;

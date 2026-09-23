@@ -49,7 +49,7 @@ export function MultiSelectSearch({ label, options, selected, onChange, placehol
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1.5 h-8 px-3 text-xs border border-[#e5e7eb] rounded-lg bg-white hover:bg-[#f9fafb] text-[#374151] min-w-[120px] max-w-[200px] truncate"
+        className="flex items-center gap-1.5 h-8 px-3 text-xs border border-linha rounded-lg bg-white hover:bg-nevoa text-tinta min-w-[120px] max-w-[200px] truncate"
       >
         <span className="truncate">
           {selected.length === 0
@@ -61,7 +61,7 @@ export function MultiSelectSearch({ label, options, selected, onChange, placehol
         {selected.length > 0 && (
           <X
             size={10}
-            className="flex-shrink-0 text-[#9ca3af] hover:text-[#374151]"
+            className="flex-shrink-0 text-aco-claro hover:text-tinta"
             onClick={(e) => {
               e.stopPropagation();
               onChange([]);
@@ -70,33 +70,33 @@ export function MultiSelectSearch({ label, options, selected, onChange, placehol
         )}
       </button>
       {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-[#e5e7eb] rounded-lg shadow-lg min-w-[200px] max-h-60 flex flex-col">
-          <div className="p-2 border-b border-[#f1f5f9]">
+        <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-linha rounded-lg shadow-lg min-w-[200px] max-h-60 flex flex-col">
+          <div className="p-2 border-b border-nevoa">
             <input
               autoFocus
               type="text"
               placeholder={placeholder ?? "Buscar..."}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full text-xs px-2 py-1 border border-[#e5e7eb] rounded focus:outline-none focus:ring-1 focus:ring-blue-400"
+              className="w-full text-xs px-2 py-1 border border-linha rounded focus:outline-none focus:ring-1 focus:ring-sinal-claro"
             />
           </div>
           <div className="overflow-y-auto flex-1">
             {filtered.length === 0 ? (
-              <p className="text-xs text-[#9ca3af] px-3 py-2">Nenhum resultado</p>
+              <p className="text-xs text-aco-claro px-3 py-2">Nenhum resultado</p>
             ) : (
               filtered.map((o) => (
                 <label
                   key={o.value}
-                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-[#f9fafb] cursor-pointer"
+                  className="flex items-center gap-2 px-3 py-1.5 hover:bg-nevoa cursor-pointer"
                 >
                   <input
                     type="checkbox"
                     checked={selected.includes(o.value)}
                     onChange={() => toggle(o.value)}
-                    className="w-3 h-3 accent-blue-600"
+                    className="w-3 h-3 accent-sinal"
                   />
-                  <span className="text-xs text-[#374151] truncate">{o.label}</span>
+                  <span className="text-xs text-tinta truncate">{o.label}</span>
                 </label>
               ))
             )}

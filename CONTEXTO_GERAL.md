@@ -466,3 +466,21 @@ Ao testar via Playwright headless, o donut apareceu **quebrado** (fragmentos em 
 ### Se for vendorizar outro componente do Bklit no futuro
 
 Repetir o mesmo processo: `curl https://bklit.com/r/<nome>.json`, resolver `registryDependencies` recursivamente, extrair `files[].content` pros `target` paths, instalar as `dependencies` npm listadas, e checar se o componente usa mais alguma CSS var/utility Tailwind que ainda não existe em `globals.css`.
+
+---
+
+## 13. Identidade visual (2026-09-23)
+
+Os arquivos-fonte da marca (logotipos, ícones, tema CSS e componente `Logo`) ficam em **`docs/marca/`**, com um `LEIA-ME.md` descrevendo cada peça.
+
+**Símbolo:** um "1" traçado como trilha de circuito — sai do anel vazio (medidor pendente) e termina no ponto azul cheio (medidor concluído). É a jornada do medidor em uma forma só.
+
+**Cores principais:** Tinta `#0f172a` (texto e traço do símbolo), Sinal `#2563eb` (ação principal, links, foco, ponto da marca), Sinal claro `#60a5fa` (ponto da marca sobre fundo escuro), Noite `#070c1f` (login e sidebar). Os tokens vivem em `frontend/app/traceone-tema.css`, importado logo depois do `@import "tailwindcss"` no `globals.css`, e geram utilities do Tailwind v4 (`bg-tinta`, `text-sinal`, `border-linha`, `bg-pendente-fundo`, `font-codigo`…). Neutros: Névoa (fundo), Linha (bordas), Aço e Aço claro (texto secundário e ícones).
+
+**Fontes:** Archivo (marca, títulos e interface, com eixo `wdth`) e Atkinson Hyperlegible Mono (`font-codigo`) para serial, matrícula, serviço GDIS e código SAP. Ambas via `next/font/google` no `app/layout.tsx`.
+
+**Marcadores de status** (`frontend/components/StatusMedidor.tsx`): cada status tem um marcador SVG próprio, além da cor — anel vazio = pendente, dois anéis lado a lado = revisão (caso ambíguo), ponto cheio = concluído, anel com barra = erro. Cada um usa o token de texto, a versão `-fundo` e a versão `-marca`.
+
+> Atenção ao ligar o componente em telas novas: o status persistido do medidor é **binário** (`StatusMedidor = 'PENDENTE' | 'CONCLUIDO'` em `lib/supabase.ts`). A variante `revisao` hoje é usada só no `tipo: "AMBIGUO"` da tela de Recuperação de Dados, e a variante `erro` não tem call site — a automação GDIS tem linguagem visual própria (ícones lucide) e não é status persistido.
+
+Cores ainda fora dos tokens, por não terem equivalente na marca: o navy de ação secundária `#1e3a5f`/`#2d5282` (botões em várias telas), a borda `#1e2942` da sidebar, os gradientes decorativos da tela de registro e as cores do donut do Recharts (`--chart-1..5`, seção 12).

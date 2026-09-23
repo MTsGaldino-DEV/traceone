@@ -1145,8 +1145,8 @@ export async function resolverRecuperacaoPendente(medidorId: string, serialCorre
 }
 
 // ─── Serviços da Conferência pendentes de vínculo, para a Automação GDIS ──────
-// Mesmas duas filas que a aba Conferência mostra em abas separadas (PENDENTE
-// e AGUARDANDO_VINCULACAO) — aqui viram uma lista só, sem paginação de tela.
+// Só a fila PENDENTE. AGUARDANDO_VINCULACAO já foi conferido e está esperando
+// vínculo manual — fica só na aba Conferência, não volta pra automação.
 
 export interface ServicoConferenciaAutomacao {
   servico: string;
@@ -1161,7 +1161,7 @@ export async function getServicosConferenciaParaAutomacao(): Promise<ServicoConf
     const { data, error } = await supabase
       .from('servicos_report')
       .select('servico,matricula')
-      .in('status_conferencia', ['PENDENTE', 'AGUARDANDO_VINCULACAO'])
+      .eq('status_conferencia', 'PENDENTE')
       .order('servico', { ascending: true })
       .range(from, from + PAGE - 1);
     if (error) throw new Error(error.message);

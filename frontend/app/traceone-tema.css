@@ -39,9 +39,8 @@
 
 /* As variáveis de fonte vêm do next/font no app/layout.tsx */
 @theme inline {
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-titulo: var(--font-space-grotesk), ui-sans-serif, system-ui, sans-serif;
-  --font-codigo: var(--font-ibm-plex-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-codigo: var(--font-atkinson-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
 }
 
 /* Fundo Noite com o degradê do login */
@@ -60,13 +59,5 @@
     font-family: var(--font-sans);
     background: var(--color-nevoa);
     color: var(--color-tinta);
-  }
-
-  h1,
-  h2,
-  h3,
-  .display {
-    font-family: var(--font-titulo);
-    letter-spacing: -0.01em;
   }
 }

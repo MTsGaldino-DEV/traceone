@@ -477,7 +477,7 @@ Os arquivos-fonte da marca (logotipos, ícones, tema CSS e componente `Logo`) fi
 
 **Cores principais:** Tinta `#0f172a` (texto e traço do símbolo), Sinal `#2563eb` (ação principal, links, foco, ponto da marca), Sinal claro `#60a5fa` (ponto da marca sobre fundo escuro), Noite `#070c1f` (login e sidebar). Os tokens vivem em `frontend/app/traceone-tema.css`, importado logo depois do `@import "tailwindcss"` no `globals.css`, e geram utilities do Tailwind v4 (`bg-tinta`, `text-sinal`, `border-linha`, `bg-pendente-fundo`, `font-codigo`…). Neutros: Névoa (fundo), Linha (bordas), Aço e Aço claro (texto secundário e ícones).
 
-**Fontes:** Inter (`font-sans`, corpo de texto e interface), Space Grotesk (`font-titulo`, h1/h2/h3/.display) e IBM Plex Mono (`font-codigo`) para serial, matrícula, serviço GDIS e código SAP. As três via `next/font/google` no `app/layout.tsx`.
+**Fontes:** Archivo (marca, títulos e interface, com eixo `wdth`) e Atkinson Hyperlegible Mono (`font-codigo`) para serial, matrícula, serviço GDIS e código SAP. Ambas via `next/font/google` no `app/layout.tsx`.
 
 **Marcadores de status** (`frontend/components/StatusMedidor.tsx`): cada status tem um marcador SVG próprio, além da cor — anel vazio = pendente, dois anéis lado a lado = revisão (caso ambíguo), ponto cheio = concluído, anel com barra = erro. Cada um usa o token de texto, a versão `-fundo` e a versão `-marca`.
 

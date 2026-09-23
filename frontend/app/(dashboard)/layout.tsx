@@ -153,7 +153,7 @@ export default function DashboardLayout({
       <aside
         className="flex flex-col w-60 flex-shrink-0 text-white border-r border-[#1e2942]"
         style={{
-          background: "linear-gradient(180deg, #0d1640 0%, #070c1f 100%)",
+          background: "linear-gradient(180deg, var(--color-noite-alto) 0%, var(--color-noite) 100%)",
         }}
       >
         {/* Logo */}
@@ -172,15 +172,15 @@ export default function DashboardLayout({
                 key={href}
                 href={href}
                 className={`group flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 ${isActive
-                    ? "bg-blue-600/30 text-white font-semibold border border-blue-500/30 shadow-sm"
-                    : "text-blue-200/70 hover:bg-white/10 hover:text-white"
+                    ? "bg-sinal/30 text-white font-semibold border border-sinal/30 shadow-sm"
+                    : "text-sinal-fundo/70 hover:bg-white/10 hover:text-white"
                   }`}
               >
                 <Icon
                   size={16}
                   className={`flex-shrink-0 transition-colors ${isActive
-                      ? "text-blue-400"
-                      : "text-blue-300/50 group-hover:text-blue-200"
+                      ? "text-sinal-claro"
+                      : "text-sinal-claro/50 group-hover:text-sinal-fundo"
                     }`}
                 />
                 {label}
@@ -195,7 +195,7 @@ export default function DashboardLayout({
         {/* User + Logout */}
         <div className="border-t border-white/10 p-3">
           <div className="flex items-center gap-3 px-2 py-2 rounded-lg bg-white/5 border border-white/5">
-            <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center flex-shrink-0 shadow-sm">
+            <div className="w-7 h-7 rounded-full bg-sinal flex items-center justify-center flex-shrink-0 shadow-sm">
               <span className="text-white text-xs font-bold uppercase">
                 {displayName.charAt(0)}
               </span>
@@ -204,19 +204,19 @@ export default function DashboardLayout({
               <p className="text-sm font-semibold text-white truncate">
                 {displayName}
               </p>
-              <p className="text-xs text-blue-200/60">{displayRole}</p>
+              <p className="text-xs text-sinal-fundo/60">{displayRole}</p>
             </div>
             <button
               onClick={() => setShowPasswordModal(true)}
               title="Alterar senha"
-              className="p-1.5 rounded-md text-blue-200/60 hover:text-white hover:bg-white/10 transition-colors"
+              className="p-1.5 rounded-md text-sinal-fundo/60 hover:text-white hover:bg-white/10 transition-colors"
             >
               <KeyRound size={15} />
             </button>
             <button
               onClick={handleLogout}
               title="Sair"
-              className="p-1.5 rounded-md text-blue-200/60 hover:text-red-400 hover:bg-red-500/20 transition-colors"
+              className="p-1.5 rounded-md text-sinal-fundo/60 hover:text-red-400 hover:bg-red-500/20 transition-colors"
             >
               <LogOut size={15} />
             </button>
@@ -244,9 +244,9 @@ export default function DashboardLayout({
       {showPasswordModal && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm">
-            <div className="flex items-center justify-between p-5 border-b border-[#f1f5f9]">
-              <h3 className="text-sm font-bold text-[#0f172a]">Alterar Senha</h3>
-              <button onClick={closePasswordModal} className="text-[#9ca3af] hover:text-[#374151]">
+            <div className="flex items-center justify-between p-5 border-b border-nevoa">
+              <h3 className="text-sm font-bold text-tinta">Alterar Senha</h3>
+              <button onClick={closePasswordModal} className="text-aco-claro hover:text-tinta">
                 <X size={16} />
               </button>
             </div>
@@ -264,18 +264,18 @@ export default function DashboardLayout({
               )}
 
               <div>
-                <label className="text-xs text-[#64748b] block mb-1">Senha atual</label>
+                <label className="text-xs text-aco block mb-1">Senha atual</label>
                 <input
                   type="password"
                   required
                   autoComplete="current-password"
                   value={currentPassword}
                   onChange={(e) => setCurrentPassword(e.target.value)}
-                  className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro"
                 />
               </div>
               <div>
-                <label className="text-xs text-[#64748b] block mb-1">Nova senha</label>
+                <label className="text-xs text-aco block mb-1">Nova senha</label>
                 <input
                   type="password"
                   required
@@ -283,18 +283,18 @@ export default function DashboardLayout({
                   autoComplete="new-password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro"
                 />
               </div>
               <div>
-                <label className="text-xs text-[#64748b] block mb-1">Confirmar nova senha</label>
+                <label className="text-xs text-aco block mb-1">Confirmar nova senha</label>
                 <input
                   type="password"
                   required
                   autoComplete="new-password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro"
                 />
               </div>
 
@@ -302,14 +302,14 @@ export default function DashboardLayout({
                 <button
                   type="button"
                   onClick={closePasswordModal}
-                  className="px-4 py-2 text-xs font-medium text-[#64748b] border border-[#e5e7eb] rounded-lg hover:bg-[#f9fafb] transition-colors"
+                  className="px-4 py-2 text-xs font-medium text-aco border border-linha rounded-lg hover:bg-nevoa transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
                   disabled={changingPassword}
-                  className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 text-xs font-medium text-white bg-sinal rounded-lg hover:bg-sinal-forte transition-colors disabled:opacity-50"
                 >
                   {changingPassword ? "Salvando..." : "Salvar"}
                 </button>

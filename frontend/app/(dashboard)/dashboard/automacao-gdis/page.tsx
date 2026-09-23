@@ -650,9 +650,9 @@ export default function AutomacaoGdisPage() {
                 type="checkbox"
                 checked={modoAutomatico}
                 onChange={(e) => setModoAutomatico(e.target.checked)}
-                className="w-4 h-4 accent-blue-600"
+                className="w-4 h-4 accent-sinal"
               />
-              <Zap size={13} className={modoAutomatico ? "text-blue-600" : "text-slate-400"} />
+              <Zap size={13} className={modoAutomatico ? "text-sinal" : "text-slate-400"} />
               Modo automático (grava sem confirmar)
             </label>
           </div>
@@ -666,7 +666,7 @@ export default function AutomacaoGdisPage() {
                   value={cnpj}
                   onChange={(e) => setCnpj(e.target.value)}
                   placeholder="00.000.000/0000-00"
-                  className="w-48 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-48 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sinal-claro"
                 />
               </div>
               <div>
@@ -678,7 +678,7 @@ export default function AutomacaoGdisPage() {
                   value={inscEstadual}
                   onChange={(e) => setInscEstadual(e.target.value)}
                   placeholder="0000000000000"
-                  className="w-48 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  className="w-48 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sinal-claro"
                 />
               </div>
               <button
@@ -713,7 +713,7 @@ export default function AutomacaoGdisPage() {
 
           {rodando && (
             <div className="flex items-center gap-3">
-              <Loader2 size={14} className="animate-spin text-blue-600" />
+              <Loader2 size={14} className="animate-spin text-sinal" />
               <span className="text-xs text-slate-600 flex-1">
                 Consultando… {qtdEncontrados} encontrado(s), {qtdGravados} gravado(s)
                 {qtdDuplicados > 0 && ` (${qtdDuplicados} duplicado(s))`}
@@ -781,7 +781,7 @@ export default function AutomacaoGdisPage() {
                           : l.tipo === "aviso"
                           ? "text-amber-400"
                           : l.tipo === "info"
-                          ? "text-blue-400"
+                          ? "text-sinal-claro"
                           : "text-slate-500"
                       }
                     >
@@ -876,7 +876,7 @@ export default function AutomacaoGdisPage() {
                   type="button"
                   onClick={togglePagina}
                   disabled={rodando}
-                  className="text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-40"
+                  className="text-xs font-bold text-sinal hover:text-sinal-forte disabled:opacity-40"
                 >
                   {paginaToda ? "Desmarcar página" : "Esta página"}
                 </button>
@@ -885,7 +885,7 @@ export default function AutomacaoGdisPage() {
                   type="button"
                   onClick={toggleTodos}
                   disabled={rodando}
-                  className="text-xs font-bold text-blue-600 hover:text-blue-700 disabled:opacity-40"
+                  className="text-xs font-bold text-sinal hover:text-sinal-forte disabled:opacity-40"
                 >
                   {itensVisiveis.every((i) => selecionados.includes(i.chave))
                     ? "Desmarcar todos"
@@ -922,7 +922,7 @@ export default function AutomacaoGdisPage() {
                           <tr
                             key={item.chave}
                             className={`border-b border-slate-50 last:border-0 transition-colors ${
-                              sel ? "bg-blue-50/40" : "hover:bg-slate-50"
+                              sel ? "bg-sinal-fundo/40" : "hover:bg-slate-50"
                             }`}
                           >
                             <td className="px-3 py-2.5">
@@ -931,7 +931,7 @@ export default function AutomacaoGdisPage() {
                                 checked={sel}
                                 disabled={rodando}
                                 onChange={() => toggleSelecionado(item.chave)}
-                                className="w-4 h-4 accent-blue-600"
+                                className="w-4 h-4 accent-sinal"
                               />
                             </td>
                             <td className="px-4 py-2.5">
@@ -939,7 +939,7 @@ export default function AutomacaoGdisPage() {
                                 className={`inline-block px-1.5 py-0.5 text-[10px] font-bold rounded ${
                                   deRecuperacao
                                     ? "bg-violet-50 text-violet-700 border border-violet-200"
-                                    : "bg-blue-50 text-blue-700 border border-blue-200"
+                                    : "bg-sinal-fundo text-sinal-forte border border-sinal-fundo"
                                 }`}
                               >
                                 {ROTULO_FILA[item.origem]}
@@ -976,14 +976,14 @@ export default function AutomacaoGdisPage() {
                                 </span>
                               ) : st?.tipo === "aguardando" ? (
                                 <span
-                                  className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 border border-blue-200 text-blue-700 text-[11px] font-bold rounded-lg"
+                                  className="inline-flex items-center gap-1.5 px-2 py-1 bg-sinal-fundo border border-sinal-fundo text-sinal-forte text-[11px] font-bold rounded-lg"
                                   title="Serial não bate com nenhum medidor pendente no cadastro. Serviço segue aguardando na Conferência."
                                 >
                                   <Clock size={12} />
                                   {st.serial} (aguardando)
                                 </span>
                               ) : st?.tipo === "consultando" ? (
-                                <span className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-semibold">
+                                <span className="inline-flex items-center gap-1.5 text-xs text-sinal font-semibold">
                                   <Loader2 size={12} className="animate-spin" />
                                   Consultando…
                                 </span>
@@ -1000,7 +1000,7 @@ export default function AutomacaoGdisPage() {
                                       setSeriaisEditados((prev) => ({ ...prev, [item.chave]: e.target.value }))
                                     }
                                     placeholder="—"
-                                    className="w-36 px-2 py-1 border border-slate-300 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                    className="w-36 px-2 py-1 border border-slate-300 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-sinal-claro"
                                   />
                                   <button
                                     type="button"
@@ -1103,10 +1103,10 @@ export default function AutomacaoGdisPage() {
                           {e.conflitos > 0 && (
                             <span className="text-amber-700">{e.conflitos} duplicado(s)</span>
                           )}
-                          {e.aguardando > 0 && <span className="text-blue-700">{e.aguardando} aguardando</span>}
+                          {e.aguardando > 0 && <span className="text-sinal-forte">{e.aguardando} aguardando</span>}
                           {e.vazios > 0 && <span className="text-amber-700">{e.vazios} sem serial</span>}
                           {e.erros > 0 && <span className="text-amber-700">{e.erros} erro(s)</span>}
-                          {e.encontrados > 0 && <span className="text-blue-700">{e.encontrados} não gravado(s)</span>}
+                          {e.encontrados > 0 && <span className="text-sinal-forte">{e.encontrados} não gravado(s)</span>}
                         </div>
                       </td>
                       <td className="px-4 py-2.5">

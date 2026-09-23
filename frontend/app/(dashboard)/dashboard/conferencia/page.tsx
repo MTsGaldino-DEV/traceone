@@ -175,13 +175,13 @@ function ConferenciaRow({
   return (
     <tr
       className={`border-b border-slate-100 transition-colors ${
-        isNext ? "bg-blue-50/40" : "hover:bg-slate-50"
+        isNext ? "bg-sinal-fundo/40" : "hover:bg-slate-50"
       }`}
     >
       {/* Nº Serviço */}
       <td className="px-4 py-3 whitespace-nowrap">
         <div className="flex items-center gap-2">
-          {isNext && <ChevronRight size={14} className="text-blue-500 shrink-0" />}
+          {isNext && <ChevronRight size={14} className="text-sinal shrink-0" />}
           <span className="font-mono text-sm font-bold text-slate-800">
             {servico.servico}
           </span>
@@ -213,7 +213,7 @@ function ConferenciaRow({
           className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg transition-all border ${
             copied
               ? "bg-emerald-100 text-emerald-700 border-emerald-300"
-              : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-blue-100 hover:text-blue-700 hover:border-blue-300"
+              : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-sinal-fundo hover:text-sinal-forte hover:border-sinal-claro"
           }`}
         >
           {copied ? (
@@ -241,7 +241,7 @@ function ConferenciaRow({
             className={`w-44 px-3 py-1.5 border rounded-lg text-xs font-mono font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all ${
               erro
                 ? "border-red-400 focus:ring-red-300 bg-red-50"
-                : "border-slate-300 focus:ring-blue-400 focus:border-blue-400"
+                : "border-slate-300 focus:ring-sinal-claro focus:border-sinal-claro"
             }`}
           />
           <button
@@ -391,12 +391,12 @@ function AguardandoRow({ servico, onVinculado, onRevertido, onExcluido, onDesatu
               value={novoSerial}
               onChange={(e) => { setNovoSerial(e.target.value); setErro(null); }}
               onKeyDown={(e) => { if (e.key === "Enter") handleCorrigir(); if (e.key === "Escape") setEditando(false); }}
-              className="w-40 px-2 py-1 border border-blue-400 rounded-lg text-xs font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              className="w-40 px-2 py-1 border border-sinal-claro rounded-lg text-xs font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-sinal-claro"
             />
             <button
               onClick={handleCorrigir}
               disabled={salvando || !novoSerial.trim()}
-              className="px-2.5 py-1 bg-blue-600 text-white text-xs font-bold rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
+              className="px-2.5 py-1 bg-sinal text-white text-xs font-bold rounded-lg hover:bg-sinal-forte disabled:opacity-50 flex items-center gap-1"
             >
               {salvando ? <Loader2 size={11} className="animate-spin" /> : <Link2 size={11} />}
               {salvando ? "…" : "OK"}
@@ -427,7 +427,7 @@ function AguardandoRow({ servico, onVinculado, onRevertido, onExcluido, onDesatu
             onClick={handleEditar}
             disabled={salvando || editando}
             title="Corrigir serial"
-            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 disabled:opacity-40 transition-colors"
+            className="flex items-center gap-1 px-2 py-1 text-xs font-medium text-sinal-forte bg-sinal-fundo border border-sinal-fundo rounded-lg hover:bg-sinal-fundo disabled:opacity-40 transition-colors"
           >
             <Pencil size={11} />
             Corrigir
@@ -623,7 +623,7 @@ export default function ConferenciaPage() {
               t.type === "success"
                 ? "bg-emerald-600 text-white"
                 : t.type === "info"
-                ? "bg-blue-600 text-white"
+                ? "bg-sinal text-white"
                 : "bg-red-600 text-white"
             }`}
           >
@@ -705,7 +705,7 @@ export default function ConferenciaPage() {
         {/* ════════ SEÇÃO 1: PENDENTES ════════ */}
         <section>
           <div className="px-5 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-blue-500" />
+            <span className="w-2 h-2 rounded-full bg-sinal" />
             <span className="text-xs font-bold text-slate-600 uppercase tracking-wide">
               Pendentes de conferência
             </span>

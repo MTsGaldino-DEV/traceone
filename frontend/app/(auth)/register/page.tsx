@@ -42,11 +42,11 @@ export default function RegisterPage() {
         {/* Decorative blobs */}
         <div
           className="absolute top-1/4 -left-24 w-80 h-80 rounded-full opacity-10"
-          style={{ background: "radial-gradient(circle, #2563eb 0%, transparent 70%)" }}
+          style={{ background: "radial-gradient(circle, var(--color-sinal) 0%, transparent 70%)" }}
         />
         <div
           className="absolute bottom-1/4 -right-16 w-64 h-64 rounded-full opacity-10"
-          style={{ background: "radial-gradient(circle, #3b82f6 0%, transparent 70%)" }}
+          style={{ background: "radial-gradient(circle, var(--color-sinal-claro) 0%, transparent 70%)" }}
         />
 
         {/* Logo */}
@@ -56,7 +56,7 @@ export default function RegisterPage() {
             style={{ letterSpacing: "-0.04em" }}
           >
             TraceOne
-            <span className="text-blue-400">.</span>
+            <span className="text-sinal-claro">.</span>
           </h1>
         </div>
 
@@ -78,8 +78,8 @@ export default function RegisterPage() {
           </p>
 
           <div className="mt-8 flex items-center gap-2">
-            <div className="w-8 h-px bg-blue-400 opacity-60" />
-            <span className="text-blue-200 text-xs font-medium tracking-widest uppercase opacity-60">
+            <div className="w-8 h-px bg-sinal-claro opacity-60" />
+            <span className="text-sinal-fundo text-xs font-medium tracking-widest uppercase opacity-60">
               Controle de Estoque
             </span>
           </div>
@@ -92,12 +92,12 @@ export default function RegisterPage() {
               "Relatórios e dashboards inteligentes",
             ].map((feature) => (
               <div key={feature} className="flex items-center gap-3">
-                <div className="w-5 h-5 rounded-full bg-blue-500 bg-opacity-20 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-3 h-3 text-blue-300" fill="currentColor" viewBox="0 0 20 20">
+                <div className="w-5 h-5 rounded-full bg-sinal bg-opacity-20 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-3 h-3 text-sinal-claro" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
                   </svg>
                 </div>
-                <span className="text-blue-100 text-sm opacity-70">{feature}</span>
+                <span className="text-sinal-fundo text-sm opacity-70">{feature}</span>
               </div>
             ))}
           </div>
@@ -105,7 +105,7 @@ export default function RegisterPage() {
 
         {/* Bottom note */}
         <div className="relative">
-          <p className="text-xs text-blue-200 opacity-30">
+          <p className="text-xs text-sinal-fundo opacity-30">
             © {new Date().getFullYear()} TraceOne · Sistema de uso interno
           </p>
         </div>
@@ -116,16 +116,16 @@ export default function RegisterPage() {
         <div className="w-full max-w-md">
           {/* Mobile logo */}
           <div className="lg:hidden text-center mb-8">
-            <h1 className="text-2xl font-black text-[#0f172a]" style={{ letterSpacing: "-0.04em" }}>
-              TraceOne<span className="text-blue-600">.</span>
+            <h1 className="text-2xl font-black text-tinta" style={{ letterSpacing: "-0.04em" }}>
+              TraceOne<span className="text-sinal">.</span>
             </h1>
           </div>
 
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-[#0f172a]">
+            <h2 className="text-2xl font-bold text-tinta">
               Criar uma conta
             </h2>
-            <p className="text-[#64748b] text-sm mt-1">
+            <p className="text-aco text-sm mt-1">
               Preencha os dados abaixo para criar seu acesso
             </p>
           </div>
@@ -145,7 +145,7 @@ export default function RegisterPage() {
             <div>
               <label
                 htmlFor="register-name"
-                className="block text-sm font-semibold text-[#0f172a] mb-1.5"
+                className="block text-sm font-semibold text-tinta mb-1.5"
               >
                 Nome completo
               </label>
@@ -157,7 +157,7 @@ export default function RegisterPage() {
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="João da Silva"
-                className="w-full px-4 py-2.5 rounded-lg border border-[#e2e8f0] text-[#0f172a] placeholder-[#94a3b8] text-sm transition-all outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                className="w-full px-4 py-2.5 rounded-lg border border-linha text-tinta placeholder-aco-claro text-sm transition-all outline-none focus:border-sinal focus:ring-2 focus:ring-sinal-fundo"
               />
             </div>
 
@@ -165,7 +165,7 @@ export default function RegisterPage() {
             <div>
               <label
                 htmlFor="register-email"
-                className="block text-sm font-semibold text-[#0f172a] mb-1.5"
+                className="block text-sm font-semibold text-tinta mb-1.5"
               >
                 Email
               </label>
@@ -177,7 +177,7 @@ export default function RegisterPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="seu@email.com"
-                className="w-full px-4 py-2.5 rounded-lg border border-[#e2e8f0] text-[#0f172a] placeholder-[#94a3b8] text-sm transition-all outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                className="w-full px-4 py-2.5 rounded-lg border border-linha text-tinta placeholder-aco-claro text-sm transition-all outline-none focus:border-sinal focus:ring-2 focus:ring-sinal-fundo"
               />
             </div>
 
@@ -185,7 +185,7 @@ export default function RegisterPage() {
             <div>
               <label
                 htmlFor="register-password"
-                className="block text-sm font-semibold text-[#0f172a] mb-1.5"
+                className="block text-sm font-semibold text-tinta mb-1.5"
               >
                 Senha
               </label>
@@ -198,12 +198,12 @@ export default function RegisterPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Mínimo 6 caracteres"
-                  className="w-full px-4 py-2.5 pr-11 rounded-lg border border-[#e2e8f0] text-[#0f172a] placeholder-[#94a3b8] text-sm transition-all outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                  className="w-full px-4 py-2.5 pr-11 rounded-lg border border-linha text-tinta placeholder-aco-claro text-sm transition-all outline-none focus:border-sinal focus:ring-2 focus:ring-sinal-fundo"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b] transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-aco-claro hover:text-aco transition-colors"
                   aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
                 >
                   {showPassword ? (
@@ -224,7 +224,7 @@ export default function RegisterPage() {
             <div>
               <label
                 htmlFor="register-confirm-password"
-                className="block text-sm font-semibold text-[#0f172a] mb-1.5"
+                className="block text-sm font-semibold text-tinta mb-1.5"
               >
                 Confirmar senha
               </label>
@@ -237,12 +237,12 @@ export default function RegisterPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   placeholder="Repita a senha"
-                  className="w-full px-4 py-2.5 pr-11 rounded-lg border border-[#e2e8f0] text-[#0f172a] placeholder-[#94a3b8] text-sm transition-all outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                  className="w-full px-4 py-2.5 pr-11 rounded-lg border border-linha text-tinta placeholder-aco-claro text-sm transition-all outline-none focus:border-sinal focus:ring-2 focus:ring-sinal-fundo"
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b] transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-aco-claro hover:text-aco transition-colors"
                   aria-label={showConfirmPassword ? "Ocultar senha" : "Mostrar senha"}
                 >
                   {showConfirmPassword ? (
@@ -267,8 +267,8 @@ export default function RegisterPage() {
               className="w-full py-3 rounded-lg font-semibold text-white text-sm transition-all duration-200 mt-2 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
               style={{
                 background: loading
-                  ? "#93c5fd"
-                  : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                  ? "var(--color-sinal-claro)"
+                  : "linear-gradient(135deg, var(--color-sinal) 0%, var(--color-sinal-forte) 100%)",
                 boxShadow: loading ? "none" : "0 4px 14px rgba(37,99,235,0.4)",
               }}
             >

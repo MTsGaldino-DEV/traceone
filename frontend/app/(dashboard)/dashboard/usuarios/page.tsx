@@ -145,7 +145,7 @@ export default function UsuariosPage() {
 
   if (!profile || !canManageUsers(profile.role)) {
     return (
-      <div className="p-5 flex items-center gap-2 text-sm text-[#64748b]">
+      <div className="p-5 flex items-center gap-2 text-sm text-aco">
         <ShieldAlert size={16} />
         Sem permissão para acessar esta página.
       </div>
@@ -156,12 +156,12 @@ export default function UsuariosPage() {
     <div className="p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-[#0f172a]">Gestão de Usuários</h2>
-          <p className="text-xs text-[#64748b] mt-0.5">{users.length} usuários cadastrados</p>
+          <h2 className="text-lg font-bold text-tinta">Gestão de Usuários</h2>
+          <p className="text-xs text-aco mt-0.5">{users.length} usuários cadastrados</p>
         </div>
         <button
           onClick={() => setShowForm((s) => !s)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-sinal rounded-lg hover:bg-sinal-forte transition-colors"
         >
           <UserPlus size={13} />
           Novo Usuário
@@ -177,37 +177,37 @@ export default function UsuariosPage() {
       {showForm && (
         <form
           onSubmit={handleInvite}
-          className="bg-white border border-[#e5e7eb] rounded-xl p-4 space-y-3"
+          className="bg-white border border-linha rounded-xl p-4 space-y-3"
         >
-          <p className="text-xs text-[#64748b]">
+          <p className="text-xs text-aco">
             O usuário nasce com a senha temporária padrão <strong>{DEFAULT_PASSWORD}</strong>. Oriente-o a usar &quot;Primeiro acesso&quot; na tela de login pra definir a própria senha — você não vê nem define a senha definitiva de ninguém.
           </p>
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="text-xs text-[#64748b] block mb-1">Nome</label>
+              <label className="text-xs text-aco block mb-1">Nome</label>
               <input
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+                className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro"
               />
             </div>
             <div>
-              <label className="text-xs text-[#64748b] block mb-1">Email</label>
+              <label className="text-xs text-aco block mb-1">Email</label>
               <input
                 required
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+                className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro"
               />
             </div>
             <div>
-              <label className="text-xs text-[#64748b] block mb-1">Papel</label>
+              <label className="text-xs text-aco block mb-1">Papel</label>
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value as Role)}
-                className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white"
+                className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro bg-white"
               >
                 {assignableRoles.map((r) => (
                   <option key={r} value={r}>
@@ -221,14 +221,14 @@ export default function UsuariosPage() {
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="px-4 py-2 text-xs font-medium text-[#64748b] border border-[#e5e7eb] rounded-lg hover:bg-[#f9fafb] transition-colors"
+              className="px-4 py-2 text-xs font-medium text-aco border border-linha rounded-lg hover:bg-nevoa transition-colors"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={inviting}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-sinal rounded-lg hover:bg-sinal-forte transition-colors disabled:opacity-50"
             >
               <UserPlus size={13} />
               {inviting ? "Criando..." : "Criar Usuário"}
@@ -237,15 +237,15 @@ export default function UsuariosPage() {
         </form>
       )}
 
-      <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
+      <div className="bg-white border border-linha rounded-xl overflow-hidden">
         {loading ? (
           <div className="p-6 flex justify-center">
-            <Loader2 size={18} className="animate-spin text-[#94a3b8]" />
+            <Loader2 size={18} className="animate-spin text-aco-claro" />
           </div>
         ) : (
           <table className="w-full text-sm">
             <thead>
-              <tr className="border-b border-[#f1f5f9] text-left text-[10px] uppercase tracking-wide text-[#94a3b8]">
+              <tr className="border-b border-nevoa text-left text-[10px] uppercase tracking-wide text-aco-claro">
                 <th className="px-4 py-2 font-medium">Nome</th>
                 <th className="px-4 py-2 font-medium">Email</th>
                 <th className="px-4 py-2 font-medium">Papel</th>
@@ -255,14 +255,14 @@ export default function UsuariosPage() {
             </thead>
             <tbody>
               {users.map((u) => (
-                <tr key={u.id} className="border-b border-[#f1f5f9] last:border-0">
-                  <td className="px-4 py-2.5 font-medium text-[#0f172a]">{u.name}</td>
-                  <td className="px-4 py-2.5 text-[#64748b]">{u.email}</td>
-                  <td className="px-4 py-2.5 text-[#64748b]">{roleLabels[u.role] ?? u.role}</td>
+                <tr key={u.id} className="border-b border-nevoa last:border-0">
+                  <td className="px-4 py-2.5 font-medium text-tinta">{u.name}</td>
+                  <td className="px-4 py-2.5 text-aco">{u.email}</td>
+                  <td className="px-4 py-2.5 text-aco">{roleLabels[u.role] ?? u.role}</td>
                   <td className="px-4 py-2.5">
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                        u.is_active ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-600"
+                        u.is_active ? "bg-emerald-100 text-emerald-700" : "bg-linha text-aco"
                       }`}
                     >
                       {u.is_active ? "Ativo" : "Inativo"}
@@ -271,7 +271,7 @@ export default function UsuariosPage() {
                   <td className="px-4 py-2.5 text-right">
                     <button
                       onClick={() => openEdit(u)}
-                      className="p-1 text-[#9ca3af] hover:text-blue-600 transition-colors rounded"
+                      className="p-1 text-aco-claro hover:text-sinal transition-colors rounded"
                       title="Editar usuário"
                     >
                       <Pencil size={14} />
@@ -288,9 +288,9 @@ export default function UsuariosPage() {
       {editUser && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between p-5 border-b border-[#f1f5f9]">
-              <h3 className="text-sm font-bold text-[#0f172a]">Editar Usuário</h3>
-              <button onClick={closeEdit} className="text-[#9ca3af] hover:text-[#374151]">
+            <div className="flex items-center justify-between p-5 border-b border-nevoa">
+              <h3 className="text-sm font-bold text-tinta">Editar Usuário</h3>
+              <button onClick={closeEdit} className="text-aco-claro hover:text-tinta">
                 <X size={16} />
               </button>
             </div>
@@ -303,31 +303,31 @@ export default function UsuariosPage() {
               )}
 
               <div>
-                <label className="text-xs text-[#64748b] block mb-1">Nome</label>
+                <label className="text-xs text-aco block mb-1">Nome</label>
                 <input
                   value={editName}
                   onChange={(e) => setEditName(e.target.value)}
-                  className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+                  className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro"
                 />
               </div>
               <div>
-                <label className="text-xs text-[#64748b] block mb-1">Email</label>
+                <label className="text-xs text-aco block mb-1">Email</label>
                 <input
                   type="email"
                   value={editEmail}
                   onChange={(e) => setEditEmail(e.target.value)}
                   disabled={editUser.role === "ADMIN"}
-                  className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:bg-[#f9fafb] disabled:text-[#94a3b8]"
+                  className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro disabled:bg-nevoa disabled:text-aco-claro"
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-[#64748b] block mb-1">Papel</label>
+                  <label className="text-xs text-aco block mb-1">Papel</label>
                   <select
                     value={editRole}
                     onChange={(e) => setEditRole(e.target.value as Role)}
                     disabled={editUser.role === "ADMIN"}
-                    className="w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg bg-white disabled:bg-[#f9fafb] disabled:text-[#94a3b8]"
+                    className="w-full h-9 px-3 text-sm border border-linha rounded-lg bg-white disabled:bg-nevoa disabled:text-aco-claro"
                   >
                     {editUser.role === "ADMIN" && <option value="ADMIN">{roleLabels.ADMIN}</option>}
                     {assignableRoles.map((r) => (
@@ -338,13 +338,13 @@ export default function UsuariosPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-[#64748b] block mb-1">Status</label>
+                  <label className="text-xs text-aco block mb-1">Status</label>
                   <button
                     type="button"
                     onClick={() => setEditActive((a) => !a)}
                     disabled={editUser.role === "ADMIN"}
                     className={`w-full h-9 rounded-lg text-xs font-semibold disabled:opacity-50 ${
-                      editActive ? "bg-emerald-100 text-emerald-700" : "bg-gray-200 text-gray-600"
+                      editActive ? "bg-emerald-100 text-emerald-700" : "bg-linha text-aco"
                     }`}
                   >
                     {editActive ? "Ativo" : "Inativo"}
@@ -352,15 +352,15 @@ export default function UsuariosPage() {
                 </div>
               </div>
 
-              <div className="border-t border-[#f1f5f9] pt-3">
-                <p className="text-xs text-[#64748b] mb-2">
+              <div className="border-t border-nevoa pt-3">
+                <p className="text-xs text-aco mb-2">
                   A senha é definida pelo próprio usuário. Pra redefinir, envie um link por email.
                 </p>
                 <button
                   type="button"
                   onClick={handleSendReset}
                   disabled={sendingReset || resetSent}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-60"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-sinal-forte bg-sinal-fundo border border-sinal-fundo rounded-lg hover:bg-sinal-fundo transition-colors disabled:opacity-60"
                 >
                   {resetSent ? <CheckCircle2 size={13} /> : <Send size={13} />}
                   {resetSent ? "Link enviado" : sendingReset ? "Enviando..." : "Enviar link de redefinição de senha"}
@@ -368,7 +368,7 @@ export default function UsuariosPage() {
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-2 p-5 border-t border-[#f1f5f9]">
+            <div className="flex items-center justify-between gap-2 p-5 border-t border-nevoa">
               {editUser.role !== "ADMIN" ? (
                 <button
                   onClick={handleDelete}
@@ -382,14 +382,14 @@ export default function UsuariosPage() {
               <div className="flex gap-2">
                 <button
                   onClick={closeEdit}
-                  className="px-4 py-2 text-xs font-medium text-[#64748b] border border-[#e5e7eb] rounded-lg hover:bg-[#f9fafb] transition-colors"
+                  className="px-4 py-2 text-xs font-medium text-aco border border-linha rounded-lg hover:bg-nevoa transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleSaveEdit}
                   disabled={saving}
-                  className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 text-xs font-medium text-white bg-sinal rounded-lg hover:bg-sinal-forte transition-colors disabled:opacity-50"
                 >
                   {saving ? "Salvando..." : "Salvar"}
                 </button>

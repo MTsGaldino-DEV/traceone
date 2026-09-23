@@ -112,7 +112,7 @@ function LoginPageInner() {
         {/* Logo above card */}
         <div className="text-center mb-8">
           <Logo tema="escuro" className="mx-auto h-9 w-auto" />
-          <p className="text-blue-200 text-sm mt-1 font-medium opacity-70">
+          <p className="text-sinal-fundo text-sm mt-1 font-medium opacity-70">
             Controle de medidores
           </p>
         </div>
@@ -125,8 +125,8 @@ function LoginPageInner() {
           {mode === "forgot" ? (
             <>
               <div className="mb-8">
-                <h2 className="text-2xl font-bold text-[#0f172a]">Recuperar senha</h2>
-                <p className="text-[#64748b] text-sm mt-1">
+                <h2 className="text-2xl font-bold text-tinta">Recuperar senha</h2>
+                <p className="text-aco text-sm mt-1">
                   Informe seu email e enviaremos um link para redefinir sua senha
                 </p>
               </div>
@@ -149,7 +149,7 @@ function LoginPageInner() {
                     onClick={backToLogin}
                     className="w-full py-3 rounded-lg font-semibold text-white text-sm transition-all duration-200"
                     style={{
-                      background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                      background: "linear-gradient(135deg, var(--color-sinal) 0%, var(--color-sinal-forte) 100%)",
                       boxShadow: "0 4px 14px rgba(37,99,235,0.4)",
                     }}
                   >
@@ -159,7 +159,7 @@ function LoginPageInner() {
               ) : (
                 <form onSubmit={handleForgotPassword} className="space-y-5">
                   <div>
-                    <label htmlFor="forgot-email" className="block text-sm font-semibold text-[#0f172a] mb-1.5">
+                    <label htmlFor="forgot-email" className="block text-sm font-semibold text-tinta mb-1.5">
                       Email
                     </label>
                     <input
@@ -170,7 +170,7 @@ function LoginPageInner() {
                       value={forgotEmail}
                       onChange={(e) => setForgotEmail(e.target.value)}
                       placeholder="seu@email.com"
-                      className="w-full px-4 py-2.5 rounded-lg border border-[#e2e8f0] text-[#0f172a] placeholder-[#94a3b8] text-sm transition-all outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                      className="w-full px-4 py-2.5 rounded-lg border border-linha text-tinta placeholder-aco-claro text-sm transition-all outline-none focus:border-sinal focus:ring-2 focus:ring-sinal-fundo"
                     />
                   </div>
 
@@ -180,8 +180,8 @@ function LoginPageInner() {
                     className="w-full py-3 rounded-lg font-semibold text-white text-sm transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                     style={{
                       background: forgotLoading
-                        ? "#93c5fd"
-                        : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                        ? "var(--color-sinal-claro)"
+                        : "linear-gradient(135deg, var(--color-sinal) 0%, var(--color-sinal-forte) 100%)",
                       boxShadow: forgotLoading ? "none" : "0 4px 14px rgba(37,99,235,0.4)",
                     }}
                   >
@@ -191,7 +191,7 @@ function LoginPageInner() {
                   <button
                     type="button"
                     onClick={backToLogin}
-                    className="w-full text-center text-sm text-[#64748b] hover:text-[#0f172a] transition-colors"
+                    className="w-full text-center text-sm text-aco hover:text-tinta transition-colors"
                   >
                     Voltar para o login
                   </button>
@@ -201,8 +201,8 @@ function LoginPageInner() {
           ) : mode === "first-access" ? (
             <>
               <div className="mb-8">
-                <h2 className="text-2xl font-bold text-[#0f172a]">Primeiro acesso</h2>
-                <p className="text-[#64748b] text-sm mt-1">
+                <h2 className="text-2xl font-bold text-tinta">Primeiro acesso</h2>
+                <p className="text-aco text-sm mt-1">
                   Entre com seu email e a senha temporária padrão (<strong>{DEFAULT_PASSWORD}</strong>) pra definir sua própria senha
                 </p>
               </div>
@@ -215,7 +215,7 @@ function LoginPageInner() {
 
               <form onSubmit={handleFirstAccess} className="space-y-5">
                 <div>
-                  <label htmlFor="first-email" className="block text-sm font-semibold text-[#0f172a] mb-1.5">
+                  <label htmlFor="first-email" className="block text-sm font-semibold text-tinta mb-1.5">
                     Email
                   </label>
                   <input
@@ -226,11 +226,11 @@ function LoginPageInner() {
                     value={firstEmail}
                     onChange={(e) => setFirstEmail(e.target.value)}
                     placeholder="seu@email.com"
-                    className="w-full px-4 py-2.5 rounded-lg border border-[#e2e8f0] text-[#0f172a] placeholder-[#94a3b8] text-sm transition-all outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-4 py-2.5 rounded-lg border border-linha text-tinta placeholder-aco-claro text-sm transition-all outline-none focus:border-sinal focus:ring-2 focus:ring-sinal-fundo"
                   />
                 </div>
                 <div>
-                  <label htmlFor="first-temp-password" className="block text-sm font-semibold text-[#0f172a] mb-1.5">
+                  <label htmlFor="first-temp-password" className="block text-sm font-semibold text-tinta mb-1.5">
                     Senha temporária
                   </label>
                   <input
@@ -239,7 +239,7 @@ function LoginPageInner() {
                     required
                     value={firstTempPassword}
                     onChange={(e) => setFirstTempPassword(e.target.value)}
-                    className="w-full px-4 py-2.5 rounded-lg border border-[#e2e8f0] text-[#0f172a] placeholder-[#94a3b8] text-sm transition-all outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-4 py-2.5 rounded-lg border border-linha text-tinta placeholder-aco-claro text-sm transition-all outline-none focus:border-sinal focus:ring-2 focus:ring-sinal-fundo"
                   />
                 </div>
 
@@ -249,8 +249,8 @@ function LoginPageInner() {
                   className="w-full py-3 rounded-lg font-semibold text-white text-sm transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                   style={{
                     background: firstLoading
-                      ? "#93c5fd"
-                      : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                      ? "var(--color-sinal-claro)"
+                      : "linear-gradient(135deg, var(--color-sinal) 0%, var(--color-sinal-forte) 100%)",
                     boxShadow: firstLoading ? "none" : "0 4px 14px rgba(37,99,235,0.4)",
                   }}
                 >
@@ -260,7 +260,7 @@ function LoginPageInner() {
                 <button
                   type="button"
                   onClick={backToLogin}
-                  className="w-full text-center text-sm text-[#64748b] hover:text-[#0f172a] transition-colors"
+                  className="w-full text-center text-sm text-aco hover:text-tinta transition-colors"
                 >
                   Voltar para o login
                 </button>
@@ -269,10 +269,10 @@ function LoginPageInner() {
           ) : (
             <>
               <div className="mb-8">
-                <h2 className="text-2xl font-bold text-[#0f172a]">
+                <h2 className="text-2xl font-bold text-tinta">
                   Entrar na sua conta
                 </h2>
-                <p className="text-[#64748b] text-sm mt-1">
+                <p className="text-aco text-sm mt-1">
                   Acesse o painel de controle do TraceOne
                 </p>
               </div>
@@ -306,7 +306,7 @@ function LoginPageInner() {
                 <div>
                   <label
                     htmlFor="login-email"
-                    className="block text-sm font-semibold text-[#0f172a] mb-1.5"
+                    className="block text-sm font-semibold text-tinta mb-1.5"
                   >
                     Email
                   </label>
@@ -318,7 +318,7 @@ function LoginPageInner() {
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     placeholder="seu@email.com"
-                    className="w-full px-4 py-2.5 rounded-lg border border-[#e2e8f0] text-[#0f172a] placeholder-[#94a3b8] text-sm transition-all outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-4 py-2.5 rounded-lg border border-linha text-tinta placeholder-aco-claro text-sm transition-all outline-none focus:border-sinal focus:ring-2 focus:ring-sinal-fundo"
                   />
                 </div>
 
@@ -327,13 +327,13 @@ function LoginPageInner() {
                   <div className="flex items-center justify-between mb-1.5">
                     <label
                       htmlFor="login-password"
-                      className="block text-sm font-semibold text-[#0f172a]"
+                      className="block text-sm font-semibold text-tinta"
                     >
                       Senha
                     </label>
                     <button
                       type="button"
-                      className="text-xs text-[#2563eb] font-semibold hover:text-blue-800 transition-colors"
+                      className="text-xs text-sinal font-semibold hover:text-sinal-forte transition-colors"
                       onClick={() => { setMode("forgot"); setForgotEmail(email); }}
                     >
                       Esqueci?
@@ -348,12 +348,12 @@ function LoginPageInner() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="••••••••"
-                      className="w-full px-4 py-2.5 pr-11 rounded-lg border border-[#e2e8f0] text-[#0f172a] placeholder-[#94a3b8] text-sm transition-all outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                      className="w-full px-4 py-2.5 pr-11 rounded-lg border border-linha text-tinta placeholder-aco-claro text-sm transition-all outline-none focus:border-sinal focus:ring-2 focus:ring-sinal-fundo"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b] transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-aco-claro hover:text-aco transition-colors"
                       aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
                     >
                       {showPassword ? (
@@ -378,8 +378,8 @@ function LoginPageInner() {
                   className="w-full py-3 rounded-lg font-semibold text-white text-sm transition-all duration-200 mt-2 flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
                   style={{
                     background: loading
-                      ? "#93c5fd"
-                      : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                      ? "var(--color-sinal-claro)"
+                      : "linear-gradient(135deg, var(--color-sinal) 0%, var(--color-sinal-forte) 100%)",
                     boxShadow: loading ? "none" : "0 4px 14px rgba(37,99,235,0.4)",
                   }}
                 >
@@ -413,12 +413,12 @@ function LoginPageInner() {
               </form>
 
               {/* Footer note */}
-              <p className="text-center text-sm text-[#64748b] mt-6">
+              <p className="text-center text-sm text-aco mt-6">
                 É seu primeiro acesso?{" "}
                 <button
                   type="button"
                   onClick={() => setMode("first-access")}
-                  className="text-[#2563eb] font-semibold hover:text-blue-800 transition-colors"
+                  className="text-sinal font-semibold hover:text-sinal-forte transition-colors"
                 >
                   Entrar com senha temporária
                 </button>
@@ -427,7 +427,7 @@ function LoginPageInner() {
           )}
         </div>
 
-        <p className="text-center text-xs text-blue-200 opacity-40 mt-6">
+        <p className="text-center text-xs text-sinal-fundo opacity-40 mt-6">
           © {new Date().getFullYear()} TraceOne. Sistema de uso interno.
         </p>
       </div>

@@ -688,10 +688,10 @@ function GdisTab() {
           onDragLeave={() => setDragging(false)}
           onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) processFile(f); }}
           onClick={() => fileInputRef.current?.click()}
-          className={`flex flex-col items-center justify-center gap-4 p-12 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${dragging ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50/50"}`}
+          className={`flex flex-col items-center justify-center gap-4 p-12 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${dragging ? "border-sinal bg-sinal-fundo" : "border-slate-300 bg-slate-50 hover:border-sinal-claro hover:bg-sinal-fundo/50"}`}
         >
-          <div className="w-14 h-14 rounded-2xl bg-blue-100 flex items-center justify-center">
-            <UploadCloud size={28} className="text-blue-600" />
+          <div className="w-14 h-14 rounded-2xl bg-sinal-fundo flex items-center justify-center">
+            <UploadCloud size={28} className="text-sinal" />
           </div>
           <div className="text-center">
             <p className="text-sm font-bold text-slate-800">Arraste o arquivo Excel/CSV aqui ou clique</p>
@@ -702,9 +702,9 @@ function GdisTab() {
       ) : null}
 
       {!file && (
-        <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl">
-          <p className="text-xs font-semibold text-blue-900 mb-2">Como funciona?</p>
-          <ul className="text-xs text-blue-800 space-y-1">
+        <div className="p-4 bg-sinal-fundo border border-sinal-fundo rounded-xl">
+          <p className="text-xs font-semibold text-sinal-forte mb-2">Como funciona?</p>
+          <ul className="text-xs text-sinal-forte space-y-1">
             <li>• Carregue o relatório exportado do GDIS (Excel ou CSV)</li>
             <li>• O sistema encontra automaticamente a linha de cabeçalho e reconhece as colunas <strong>Serviço</strong>, <strong>Matrícula</strong>, <strong>Término</strong>, <strong>Cód. Serv.</strong> e <strong>Tipo Serv.</strong> (mesmo com nomes ligeiramente diferentes)</li>
             <li>• Cada linha vira um serviço importado, usado depois na conferência de medidores</li>
@@ -716,8 +716,8 @@ function GdisTab() {
       {file && (
         <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
           <div className="flex items-center gap-3 p-4 border-b border-slate-100 bg-slate-50/50">
-            <div className="w-10 h-10 rounded-xl bg-blue-100 flex items-center justify-center shrink-0">
-              <FileText size={18} className="text-blue-600" />
+            <div className="w-10 h-10 rounded-xl bg-sinal-fundo flex items-center justify-center shrink-0">
+              <FileText size={18} className="text-sinal" />
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-slate-900 truncate">{file.name}</p>
@@ -949,7 +949,7 @@ function AtribuicoesTab() {
           onDragLeave={() => setDragging(false)}
           onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) processFile(f); }}
           onClick={() => fileInputRef.current?.click()}
-          className={`flex flex-col items-center justify-center gap-4 p-12 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${dragging ? "border-blue-500 bg-blue-50" : "border-slate-300 bg-slate-50 hover:border-blue-400 hover:bg-blue-50/50"}`}
+          className={`flex flex-col items-center justify-center gap-4 p-12 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${dragging ? "border-sinal bg-sinal-fundo" : "border-slate-300 bg-slate-50 hover:border-sinal-claro hover:bg-sinal-fundo/50"}`}
         >
           <div className="w-14 h-14 rounded-2xl bg-indigo-100 flex items-center justify-center">
             <RefreshCw size={28} className="text-indigo-600" />
@@ -1473,8 +1473,8 @@ export default function ImportacaoPage() {
     <div className="max-w-2xl mx-auto space-y-6 p-6">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-bold text-[#0f172a]">Importar</h2>
-        <p className="text-sm text-[#64748b] mt-0.5">Importe relatórios GDIS, sincronize a planilha de atribuições SAP ou vincule serviços pelas planilhas PC e TC.</p>
+        <h2 className="text-xl font-bold text-tinta">Importar</h2>
+        <p className="text-sm text-aco mt-0.5">Importe relatórios GDIS, sincronize a planilha de atribuições SAP ou vincule serviços pelas planilhas PC e TC.</p>
       </div>
 
       {/* Tabs */}

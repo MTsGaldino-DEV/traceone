@@ -103,7 +103,7 @@ function RecuperacaoRow({ item, onResolvido, addToast }: RowProps) {
             <select
               value={serial}
               onChange={(e) => setSerial(e.target.value)}
-              className="w-40 px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-40 px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-sinal-claro"
             >
               {item.candidatosSerial.map((c) => (
                 <option key={c} value={c}>
@@ -125,7 +125,7 @@ function RecuperacaoRow({ item, onResolvido, addToast }: RowProps) {
               }}
               placeholder="Serial correto"
               className={`w-40 px-3 py-1.5 border rounded-lg text-xs font-mono font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all ${
-                erro ? "border-red-400 focus:ring-red-300 bg-red-50" : "border-slate-300 focus:ring-blue-400 focus:border-blue-400"
+                erro ? "border-red-400 focus:ring-red-300 bg-red-50" : "border-slate-300 focus:ring-sinal-claro focus:border-sinal-claro"
               }`}
             />
           )}
@@ -185,7 +185,7 @@ export default function RecuperacaoIncidentePage() {
           <div
             key={t.id}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl shadow-lg text-sm font-semibold pointer-events-auto transition-all ${
-              t.type === "success" ? "bg-emerald-600 text-white" : t.type === "info" ? "bg-blue-600 text-white" : "bg-red-600 text-white"
+              t.type === "success" ? "bg-emerald-600 text-white" : t.type === "info" ? "bg-sinal text-white" : "bg-red-600 text-white"
             }`}
           >
             {t.type === "success" ? <CheckCircle2 size={16} /> : t.type === "info" ? <Clock size={16} /> : <AlertTriangle size={16} />}

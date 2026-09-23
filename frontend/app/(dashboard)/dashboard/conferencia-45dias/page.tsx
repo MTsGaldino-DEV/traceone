@@ -145,7 +145,7 @@ function MedidorRow({ medidor, onVinculado, onOcultar, addToast, ocultando }: Ro
                 ? "border-red-400 focus:ring-red-300 bg-red-50"
                 : jaVinculado
                 ? "border-emerald-300 bg-emerald-50 focus:ring-emerald-300"
-                : "border-slate-300 focus:ring-blue-400 focus:border-blue-400"
+                : "border-slate-300 focus:ring-sinal-claro focus:border-sinal-claro"
             }`}
           />
           <button
@@ -345,7 +345,7 @@ export default function Conferencia45DiasPage() {
               t.type === "success"
                 ? "bg-emerald-600 text-white"
                 : t.type === "info"
-                ? "bg-blue-600 text-white"
+                ? "bg-sinal text-white"
                 : "bg-red-600 text-white"
             }`}
           >
@@ -377,7 +377,7 @@ export default function Conferencia45DiasPage() {
             value={serialInput}
             onChange={(e) => setSerialInput(e.target.value)}
             placeholder="Buscar serial…"
-            className="w-48 h-9 pl-8 pr-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400 font-mono"
+            className="w-48 h-9 pl-8 pr-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro font-mono"
           />
         </div>
 

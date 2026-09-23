@@ -88,14 +88,14 @@ function SapSearch({ tipos, selected, onSelect }: SapSearchProps) {
     <div ref={ref} className="relative">
       <label className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 block">Material SAP</label>
       {selected ? (
-        <div className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+        <div className="flex items-center gap-3 p-3 bg-sinal-fundo border border-sinal-fundo rounded-xl">
           <div className="w-10 h-10 rounded-lg bg-[#1e3a5f] flex items-center justify-center shrink-0">
             <Package size={18} className="text-white" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-slate-900">{selected.cod_sap}</p>
             <p className="text-xs text-slate-600 truncate">{selected.tipo}</p>
-            <p className="text-xs text-blue-600 font-semibold mt-0.5">
+            <p className="text-xs text-sinal font-semibold mt-0.5">
               {selected.ligacao === "direto" ? "Ligação Direta" : "Ligação Indireta"} · R$ {selected.valor.toFixed(2)}
             </p>
           </div>
@@ -112,7 +112,7 @@ function SapSearch({ tipos, selected, onSelect }: SapSearchProps) {
               onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
               onFocus={() => setOpen(true)} onKeyDown={handleKeyDown}
               placeholder="Digite o código SAP e pressione Enter..."
-              className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+              className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sinal focus:border-sinal transition-all"
             />
           </div>
           {open && query.length > 0 && (
@@ -122,7 +122,7 @@ function SapSearch({ tipos, selected, onSelect }: SapSearchProps) {
                 : filtered.map((t) => (
                   <button key={t.cod_sap} type="button"
                     onMouseDown={(e) => { e.preventDefault(); onSelect(t); setQuery(""); setOpen(false); }}
-                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-blue-50 transition-colors text-left">
+                    className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-sinal-fundo transition-colors text-left">
                     <span className="font-mono text-sm font-bold text-[#1e3a5f] w-16 shrink-0">{t.cod_sap}</span>
                     <span className="text-sm text-slate-700 truncate flex-1">{t.tipo}</span>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${t.ligacao === "direto" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`}>
@@ -257,7 +257,7 @@ function ModalConflitoReatribuicao({
   const mesmaMatricula = novaMatricula === conflito.matricula_atual;
 
   return (
-    <div className="fixed inset-0 bg-[#0f172a]/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div className="fixed inset-0 bg-tinta/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-100 overflow-hidden">
         <div className="px-6 py-4 bg-amber-50 border-b border-amber-200 flex items-center gap-3">
           <div className="w-10 h-10 rounded-full bg-amber-100 border border-amber-300 flex items-center justify-center shrink-0">
@@ -296,7 +296,7 @@ function ModalConflitoReatribuicao({
               <div className="flex items-center gap-3">
                 <div className="flex-1 h-px bg-slate-200" />
                 <span className="flex items-center gap-1.5 text-xs text-slate-500 font-semibold">
-                  <ArrowRight size={14} className="text-blue-500" /> Reatribuir para
+                  <ArrowRight size={14} className="text-sinal" /> Reatribuir para
                 </span>
                 <div className="flex-1 h-px bg-slate-200" />
               </div>
@@ -312,8 +312,8 @@ function ModalConflitoReatribuicao({
           )}
 
           {mesmaMatricula && (
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl">
-              <p className="text-xs text-blue-700 font-semibold">
+            <div className="p-3 bg-sinal-fundo border border-sinal-fundo rounded-xl">
+              <p className="text-xs text-sinal-forte font-semibold">
                 ⚠️ Este medidor já está atribuído ao mesmo colaborador selecionado. Remova o serial da lista ou selecione outro colaborador.
               </p>
             </div>
@@ -524,8 +524,8 @@ export default function LancamentoManualPage() {
     <div className="max-w-2xl mx-auto space-y-6">
       {/* Header */}
       <div>
-        <h2 className="text-xl font-bold text-[#0f172a]">Lançamento Manual</h2>
-        <p className="text-sm text-[#64748b] mt-0.5">Atribua medidores a um colaborador de uma vez só</p>
+        <h2 className="text-xl font-bold text-tinta">Lançamento Manual</h2>
+        <p className="text-sm text-aco mt-0.5">Atribua medidores a um colaborador de uma vez só</p>
       </div>
 
       {/* Success banner */}
@@ -582,7 +582,7 @@ export default function LancamentoManualPage() {
             <div className="relative">
               <CalendarDays size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
               <input type="date" value={dataAtribuicao} onChange={(e) => setDataAtribuicao(e.target.value)} required
-                className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all"
+                className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-sinal focus:border-sinal transition-all"
               />
             </div>
           </div>
@@ -606,7 +606,7 @@ export default function LancamentoManualPage() {
               <div className="w-6 h-6 rounded-full bg-[#1e3a5f] text-white flex items-center justify-center text-xs font-bold shrink-0">4</div>
               <span className="text-sm font-bold text-slate-700">Números de Série</span>
               {hasAnyChecking && (
-                <span className="flex items-center gap-1.5 text-xs text-blue-600 font-semibold ml-auto">
+                <span className="flex items-center gap-1.5 text-xs text-sinal font-semibold ml-auto">
                   <Loader2 size={12} className="animate-spin" /> Verificando...
                 </span>
               )}
@@ -621,7 +621,7 @@ export default function LancamentoManualPage() {
                 onChange={(e) => setSerialInput(e.target.value)}
                 placeholder="AMN258018041, AMN258018045, AMN258018188..."
                 rows={4}
-                className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-mono font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none"
+                className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-mono font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sinal focus:border-sinal transition-all resize-none"
               />
             </div>
 
@@ -652,8 +652,8 @@ export default function LancamentoManualPage() {
                     let badgeContent: React.ReactNode = i + 1;
 
                     if (status === "checking") {
-                      chipClass = "bg-blue-50 border-blue-200 text-blue-700";
-                      badgeClass = "bg-blue-400";
+                      chipClass = "bg-sinal-fundo border-sinal-fundo text-sinal-forte";
+                      badgeClass = "bg-sinal-claro";
                       badgeContent = <Loader2 size={8} className="animate-spin" />;
                     } else if (reatribuido) {
                       chipClass = "bg-emerald-50 border-emerald-300 text-emerald-700";

@@ -38,7 +38,7 @@ interface ColabForm {
 const emptyForm: ColabForm = { nome: "", supervisor: "", gc: "", go: "" };
 
 const inputClass =
-  "w-full h-9 px-3 text-sm border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400";
+  "w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro";
 
 export default function ColaboradoresPage() {
   const router = useRouter();
@@ -210,7 +210,7 @@ export default function ColaboradoresPage() {
 
   if (!profile || !canManageColaboradores(profile.role)) {
     return (
-      <div className="p-5 flex items-center gap-2 text-sm text-[#64748b]">
+      <div className="p-5 flex items-center gap-2 text-sm text-aco">
         <ShieldAlert size={16} />
         Sem permissão para acessar esta página.
       </div>
@@ -223,15 +223,15 @@ export default function ColaboradoresPage() {
     <div className="p-5 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-bold text-[#0f172a]">Gestão de Colaboradores</h2>
-          <p className="text-xs text-[#64748b] mt-0.5">
+          <h2 className="text-lg font-bold text-tinta">Gestão de Colaboradores</h2>
+          <p className="text-xs text-aco mt-0.5">
             {colaboradores.length} colaboradores cadastrados
             {temFiltro && ` · ${filtered.length} encontrados`}
           </p>
         </div>
         <button
           onClick={() => setShowForm((s) => !s)}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-sinal rounded-lg hover:bg-sinal-forte transition-colors"
         >
           <UserPlus size={13} />
           Novo Colaborador
@@ -245,14 +245,14 @@ export default function ColaboradoresPage() {
       )}
 
       {showForm && (
-        <form onSubmit={handleCreate} className="bg-white border border-[#e5e7eb] rounded-xl p-4 space-y-3">
-          <p className="text-xs text-[#64748b]">
+        <form onSubmit={handleCreate} className="bg-white border border-linha rounded-xl p-4 space-y-3">
+          <p className="text-xs text-aco">
             A matrícula é o identificador único do colaborador e não pode ser alterada depois. Ela é
             gravada sempre em minúsculo.
           </p>
           <div className="grid grid-cols-5 gap-3">
             <div>
-              <label className="text-xs text-[#64748b] block mb-1">Matrícula</label>
+              <label className="text-xs text-aco block mb-1">Matrícula</label>
               <input
                 required
                 value={newMatricula}
@@ -262,7 +262,7 @@ export default function ColaboradoresPage() {
               />
             </div>
             <div className="col-span-2">
-              <label className="text-xs text-[#64748b] block mb-1">Nome</label>
+              <label className="text-xs text-aco block mb-1">Nome</label>
               <input
                 required
                 value={newForm.nome}
@@ -271,7 +271,7 @@ export default function ColaboradoresPage() {
               />
             </div>
             <div>
-              <label className="text-xs text-[#64748b] block mb-1">Supervisor</label>
+              <label className="text-xs text-aco block mb-1">Supervisor</label>
               <input
                 list="sug-supervisor"
                 value={newForm.supervisor}
@@ -281,7 +281,7 @@ export default function ColaboradoresPage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-xs text-[#64748b] block mb-1">GC</label>
+                <label className="text-xs text-aco block mb-1">GC</label>
                 <input
                   list="sug-gc"
                   value={newForm.gc}
@@ -290,7 +290,7 @@ export default function ColaboradoresPage() {
                 />
               </div>
               <div>
-                <label className="text-xs text-[#64748b] block mb-1">GO</label>
+                <label className="text-xs text-aco block mb-1">GO</label>
                 <input
                   list="sug-go"
                   value={newForm.go}
@@ -304,14 +304,14 @@ export default function ColaboradoresPage() {
             <button
               type="button"
               onClick={() => setShowForm(false)}
-              className="px-4 py-2 text-xs font-medium text-[#64748b] border border-[#e5e7eb] rounded-lg hover:bg-[#f9fafb] transition-colors"
+              className="px-4 py-2 text-xs font-medium text-aco border border-linha rounded-lg hover:bg-nevoa transition-colors"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={creating}
-              className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-medium text-white bg-sinal rounded-lg hover:bg-sinal-forte transition-colors disabled:opacity-50"
             >
               <UserPlus size={13} />
               {creating ? "Cadastrando..." : "Cadastrar"}
@@ -323,17 +323,17 @@ export default function ColaboradoresPage() {
       {/* Busca + filtros */}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative flex-1 min-w-[240px]">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#94a3b8]" />
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-aco-claro" />
           <input
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             placeholder="Buscar por matrícula, nome, supervisor, GC ou GO…"
-            className="w-full h-8 pl-9 pr-9 text-xs bg-white border border-[#e5e7eb] rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400"
+            className="w-full h-8 pl-9 pr-9 text-xs bg-white border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro"
           />
           {search && (
             <button
               onClick={() => { setSearch(""); setPage(1); }}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9ca3af] hover:text-[#374151]"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-aco-claro hover:text-tinta"
               title="Limpar busca"
             >
               <X size={13} />
@@ -363,7 +363,7 @@ export default function ColaboradoresPage() {
         {temFiltro && (
           <button
             onClick={limparFiltros}
-            className="flex items-center gap-1 h-8 px-3 text-xs font-medium text-[#64748b] border border-[#e5e7eb] rounded-lg bg-white hover:bg-[#f9fafb] transition-colors"
+            className="flex items-center gap-1 h-8 px-3 text-xs font-medium text-aco border border-linha rounded-lg bg-white hover:bg-nevoa transition-colors"
           >
             <X size={12} />
             Limpar
@@ -371,20 +371,20 @@ export default function ColaboradoresPage() {
         )}
       </div>
 
-      <div className="bg-white border border-[#e5e7eb] rounded-xl overflow-hidden">
+      <div className="bg-white border border-linha rounded-xl overflow-hidden">
         {loading ? (
           <div className="p-6 flex justify-center">
-            <Loader2 size={18} className="animate-spin text-[#94a3b8]" />
+            <Loader2 size={18} className="animate-spin text-aco-claro" />
           </div>
         ) : filtered.length === 0 ? (
-          <div className="p-6 text-center text-sm text-[#64748b]">
+          <div className="p-6 text-center text-sm text-aco">
             Nenhum colaborador encontrado.
           </div>
         ) : (
           <>
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[#f1f5f9] text-left text-[10px] uppercase tracking-wide text-[#94a3b8]">
+                <tr className="border-b border-nevoa text-left text-[10px] uppercase tracking-wide text-aco-claro">
                   <th className="px-4 py-2 font-medium">Matrícula</th>
                   <th className="px-4 py-2 font-medium">Nome</th>
                   <th className="px-4 py-2 font-medium">Supervisor</th>
@@ -395,16 +395,16 @@ export default function ColaboradoresPage() {
               </thead>
               <tbody>
                 {visible.map((c) => (
-                  <tr key={c.matricula} className="border-b border-[#f1f5f9] last:border-0">
-                    <td className="px-4 py-2.5 font-mono text-xs text-[#64748b]">{c.matricula}</td>
-                    <td className="px-4 py-2.5 font-medium text-[#0f172a]">{c.nome}</td>
-                    <td className="px-4 py-2.5 text-[#64748b]">{c.supervisor ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-[#64748b]">{c.gc ?? "—"}</td>
-                    <td className="px-4 py-2.5 text-[#64748b]">{c.go ?? "—"}</td>
+                  <tr key={c.matricula} className="border-b border-nevoa last:border-0">
+                    <td className="px-4 py-2.5 font-mono text-xs text-aco">{c.matricula}</td>
+                    <td className="px-4 py-2.5 font-medium text-tinta">{c.nome}</td>
+                    <td className="px-4 py-2.5 text-aco">{c.supervisor ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-aco">{c.gc ?? "—"}</td>
+                    <td className="px-4 py-2.5 text-aco">{c.go ?? "—"}</td>
                     <td className="px-4 py-2.5 text-right">
                       <button
                         onClick={() => openEdit(c)}
-                        className="p-1 text-[#9ca3af] hover:text-blue-600 transition-colors rounded"
+                        className="p-1 text-aco-claro hover:text-sinal transition-colors rounded"
                         title="Editar colaborador"
                       >
                         <Pencil size={14} />
@@ -447,12 +447,12 @@ export default function ColaboradoresPage() {
       {editTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md">
-            <div className="flex items-center justify-between p-5 border-b border-[#f1f5f9]">
+            <div className="flex items-center justify-between p-5 border-b border-nevoa">
               <div>
-                <h3 className="text-sm font-bold text-[#0f172a]">Editar Colaborador</h3>
-                <p className="text-xs text-[#94a3b8] font-mono mt-0.5">{editTarget.matricula}</p>
+                <h3 className="text-sm font-bold text-tinta">Editar Colaborador</h3>
+                <p className="text-xs text-aco-claro font-mono mt-0.5">{editTarget.matricula}</p>
               </div>
-              <button onClick={closeEdit} className="text-[#9ca3af] hover:text-[#374151]">
+              <button onClick={closeEdit} className="text-aco-claro hover:text-tinta">
                 <X size={16} />
               </button>
             </div>
@@ -465,7 +465,7 @@ export default function ColaboradoresPage() {
               )}
 
               <div>
-                <label className="text-xs text-[#64748b] block mb-1">Nome</label>
+                <label className="text-xs text-aco block mb-1">Nome</label>
                 <input
                   value={editForm.nome}
                   onChange={(e) => setEditForm((f) => ({ ...f, nome: e.target.value }))}
@@ -473,7 +473,7 @@ export default function ColaboradoresPage() {
                 />
               </div>
               <div>
-                <label className="text-xs text-[#64748b] block mb-1">Supervisor</label>
+                <label className="text-xs text-aco block mb-1">Supervisor</label>
                 <input
                   list="sug-supervisor"
                   value={editForm.supervisor}
@@ -483,7 +483,7 @@ export default function ColaboradoresPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-[#64748b] block mb-1">GC</label>
+                  <label className="text-xs text-aco block mb-1">GC</label>
                   <input
                     list="sug-gc"
                     value={editForm.gc}
@@ -492,7 +492,7 @@ export default function ColaboradoresPage() {
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-[#64748b] block mb-1">GO</label>
+                  <label className="text-xs text-aco block mb-1">GO</label>
                   <input
                     list="sug-go"
                     value={editForm.go}
@@ -514,7 +514,7 @@ export default function ColaboradoresPage() {
               )}
             </div>
 
-            <div className="flex items-center justify-between gap-2 p-5 border-t border-[#f1f5f9]">
+            <div className="flex items-center justify-between gap-2 p-5 border-t border-nevoa">
               <button
                 onClick={handleDelete}
                 disabled={deleting || vinculados === null || !podeExcluir}
@@ -533,14 +533,14 @@ export default function ColaboradoresPage() {
               <div className="flex gap-2">
                 <button
                   onClick={closeEdit}
-                  className="px-4 py-2 text-xs font-medium text-[#64748b] border border-[#e5e7eb] rounded-lg hover:bg-[#f9fafb] transition-colors"
+                  className="px-4 py-2 text-xs font-medium text-aco border border-linha rounded-lg hover:bg-nevoa transition-colors"
                 >
                   Cancelar
                 </button>
                 <button
                   onClick={handleSaveEdit}
                   disabled={saving}
-                  className="px-4 py-2 text-xs font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 text-xs font-medium text-white bg-sinal rounded-lg hover:bg-sinal-forte transition-colors disabled:opacity-50"
                 >
                   {saving ? "Salvando..." : "Salvar"}
                 </button>

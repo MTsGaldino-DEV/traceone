@@ -390,7 +390,7 @@ export default function DuplicidadePage() {
               t.type === "success"
                 ? "bg-emerald-600 text-white"
                 : t.type === "info"
-                ? "bg-blue-600 text-white"
+                ? "bg-sinal text-white"
                 : "bg-red-600 text-white"
             }`}
           >

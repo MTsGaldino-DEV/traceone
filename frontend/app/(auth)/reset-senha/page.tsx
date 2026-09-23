@@ -77,37 +77,37 @@ export default function ResetSenhaPage() {
         <div className="text-center mb-8">
           <h1 className="text-3xl font-black tracking-tight text-white" style={{ letterSpacing: "-0.04em" }}>
             TraceOne
-            <span className="text-blue-400">.</span>
+            <span className="text-sinal-claro">.</span>
           </h1>
         </div>
 
         <div className="bg-white rounded-2xl shadow-2xl px-8 py-10" style={{ boxShadow: "0 32px 64px rgba(0,0,0,0.4)" }}>
           {checkingSession ? (
-            <p className="text-center text-sm text-[#64748b]">Verificando link...</p>
+            <p className="text-center text-sm text-aco">Verificando link...</p>
           ) : !sessionReady ? (
             <div className="space-y-4">
-              <h2 className="text-2xl font-bold text-[#0f172a]">Link inválido</h2>
-              <p className="text-[#64748b] text-sm">
+              <h2 className="text-2xl font-bold text-tinta">Link inválido</h2>
+              <p className="text-aco text-sm">
                 Esse link de acesso é inválido ou expirou. Peça um novo convite ou solicite a recuperação de senha novamente na tela de login.
               </p>
               <button
                 onClick={() => router.push("/login")}
                 className="w-full py-3 rounded-lg font-semibold text-white text-sm"
-                style={{ background: "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)" }}
+                style={{ background: "linear-gradient(135deg, var(--color-sinal) 0%, var(--color-sinal-forte) 100%)" }}
               >
                 Ir para o login
               </button>
             </div>
           ) : success ? (
             <div className="space-y-4">
-              <h2 className="text-2xl font-bold text-[#0f172a]">Senha definida!</h2>
-              <p className="text-[#64748b] text-sm">Agora entre novamente com sua nova senha. Redirecionando para o login...</p>
+              <h2 className="text-2xl font-bold text-tinta">Senha definida!</h2>
+              <p className="text-aco text-sm">Agora entre novamente com sua nova senha. Redirecionando para o login...</p>
             </div>
           ) : (
             <>
               <div className="mb-8">
-                <h2 className="text-2xl font-bold text-[#0f172a]">Defina sua senha</h2>
-                <p className="text-[#64748b] text-sm mt-1">Escolha a senha que você vai usar para acessar o TraceOne</p>
+                <h2 className="text-2xl font-bold text-tinta">Defina sua senha</h2>
+                <p className="text-aco text-sm mt-1">Escolha a senha que você vai usar para acessar o TraceOne</p>
               </div>
 
               {error && (
@@ -118,7 +118,7 @@ export default function ResetSenhaPage() {
 
               <form onSubmit={handleSubmit} className="space-y-5">
                 <div>
-                  <label htmlFor="new-password" className="block text-sm font-semibold text-[#0f172a] mb-1.5">
+                  <label htmlFor="new-password" className="block text-sm font-semibold text-tinta mb-1.5">
                     Nova senha
                   </label>
                   <div className="relative">
@@ -131,12 +131,12 @@ export default function ResetSenhaPage() {
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Mínimo 6 caracteres"
-                      className="w-full px-4 py-2.5 pr-11 rounded-lg border border-[#e2e8f0] text-[#0f172a] placeholder-[#94a3b8] text-sm transition-all outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                      className="w-full px-4 py-2.5 pr-11 rounded-lg border border-linha text-tinta placeholder-aco-claro text-sm transition-all outline-none focus:border-sinal focus:ring-2 focus:ring-sinal-fundo"
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b] transition-colors"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-aco-claro hover:text-aco transition-colors"
                       aria-label={showPassword ? "Ocultar senha" : "Mostrar senha"}
                     >
                       {showPassword ? (
@@ -154,7 +154,7 @@ export default function ResetSenhaPage() {
                 </div>
 
                 <div>
-                  <label htmlFor="confirm-new-password" className="block text-sm font-semibold text-[#0f172a] mb-1.5">
+                  <label htmlFor="confirm-new-password" className="block text-sm font-semibold text-tinta mb-1.5">
                     Confirmar nova senha
                   </label>
                   <input
@@ -165,7 +165,7 @@ export default function ResetSenhaPage() {
                     value={confirmPassword}
                     onChange={(e) => setConfirmPassword(e.target.value)}
                     placeholder="Repita a senha"
-                    className="w-full px-4 py-2.5 rounded-lg border border-[#e2e8f0] text-[#0f172a] placeholder-[#94a3b8] text-sm transition-all outline-none focus:border-[#2563eb] focus:ring-2 focus:ring-blue-100"
+                    className="w-full px-4 py-2.5 rounded-lg border border-linha text-tinta placeholder-aco-claro text-sm transition-all outline-none focus:border-sinal focus:ring-2 focus:ring-sinal-fundo"
                   />
                 </div>
 
@@ -174,7 +174,7 @@ export default function ResetSenhaPage() {
                   disabled={saving}
                   className="w-full py-3 rounded-lg font-semibold text-white text-sm transition-all duration-200 mt-2 disabled:opacity-70 disabled:cursor-not-allowed"
                   style={{
-                    background: saving ? "#93c5fd" : "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)",
+                    background: saving ? "var(--color-sinal-claro)" : "linear-gradient(135deg, var(--color-sinal) 0%, var(--color-sinal-forte) 100%)",
                     boxShadow: saving ? "none" : "0 4px 14px rgba(37,99,235,0.4)",
                   }}
                 >

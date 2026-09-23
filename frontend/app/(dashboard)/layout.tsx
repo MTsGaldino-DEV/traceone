@@ -22,7 +22,7 @@ import { Logo } from "../../components/Logo";
 import { supabase } from "../../lib/supabase";
 import type { Profile } from "../../lib/supabase";
 import { logout, changeOwnPassword } from "../../lib/api";
-import { canManageUsers, isAdmin, roleLabels } from "../../lib/permissions";
+import { canManageColaboradores, canManageUsers, isAdmin, roleLabels } from "../../lib/permissions";
 
 const navItems = [
   { label: "Lista de Medidores", href: "/dashboard", icon: LayoutDashboard, despachante: true },
@@ -33,9 +33,13 @@ const navItems = [
   { label: "Duplicidade", href: "/dashboard/duplicidade", icon: Copy, despachante: false },
 ];
 
-// Visíveis apenas de supervisor pra cima na hierarquia
-const gestaoNavItems = [
+// Visível pra quem escreve no sistema, incluindo o almoxarifado
+const colaboradoresNavItems = [
   { label: "Gestão de Colaboradores", href: "/dashboard/colaboradores", icon: Contact },
+];
+
+// Visível apenas de supervisor pra cima na hierarquia
+const usuariosNavItems = [
   { label: "Gestão de Usuários", href: "/dashboard/usuarios", icon: Users },
 ];
 
@@ -85,7 +89,12 @@ export default function DashboardLayout({
 
   const isDespachante = profile?.role === "DESPACHANTE";
   const visibleNavItems = isDespachante ? navItems.filter((n) => n.despachante) : navItems;
-  const withGestao = canManageUsers(profile?.role) ? [...visibleNavItems, ...gestaoNavItems] : visibleNavItems;
+  const withColaboradores = canManageColaboradores(profile?.role)
+    ? [...visibleNavItems, ...colaboradoresNavItems]
+    : visibleNavItems;
+  const withGestao = canManageUsers(profile?.role)
+    ? [...withColaboradores, ...usuariosNavItems]
+    : withColaboradores;
   const allNavItems = isAdmin(profile?.role) ? [...withGestao, ...adminNavItems] : withGestao;
 
   useEffect(() => {

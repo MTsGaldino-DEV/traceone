@@ -11,9 +11,9 @@ export function isAdmin(role?: Role | null): boolean {
   return role === "ADMIN";
 }
 
-/** Cadastro de colaboradores: supervisor pra cima na hierarquia. */
+/** Cadastro de colaboradores: quem escreve no sistema, incluindo o almoxarifado. */
 export function canManageColaboradores(role?: Role | null): boolean {
-  return !!role && MANAGER_ROLES.includes(role);
+  return !!role && WRITE_ROLES.includes(role);
 }
 
 export function canWrite(role?: Role | null): boolean {

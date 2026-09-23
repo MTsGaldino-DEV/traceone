@@ -258,7 +258,7 @@ export default function ColaboradoresPage() {
                 value={newMatricula}
                 onChange={(e) => setNewMatricula(e.target.value)}
                 placeholder="e268779"
-                className={`${inputClass} font-mono`}
+                className={`${inputClass} font-codigo`}
               />
             </div>
             <div className="col-span-2">
@@ -396,7 +396,7 @@ export default function ColaboradoresPage() {
               <tbody>
                 {visible.map((c) => (
                   <tr key={c.matricula} className="border-b border-nevoa last:border-0">
-                    <td className="px-4 py-2.5 font-mono text-xs text-aco">{c.matricula}</td>
+                    <td className="px-4 py-2.5 font-codigo text-xs text-aco">{c.matricula}</td>
                     <td className="px-4 py-2.5 font-medium text-tinta">{c.nome}</td>
                     <td className="px-4 py-2.5 text-aco">{c.supervisor ?? "—"}</td>
                     <td className="px-4 py-2.5 text-aco">{c.gc ?? "—"}</td>
@@ -450,7 +450,7 @@ export default function ColaboradoresPage() {
             <div className="flex items-center justify-between p-5 border-b border-nevoa">
               <div>
                 <h3 className="text-sm font-bold text-tinta">Editar Colaborador</h3>
-                <p className="text-xs text-aco-claro font-mono mt-0.5">{editTarget.matricula}</p>
+                <p className="text-xs text-aco-claro font-codigo mt-0.5">{editTarget.matricula}</p>
               </div>
               <button onClick={closeEdit} className="text-aco-claro hover:text-tinta">
                 <X size={16} />

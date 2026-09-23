@@ -1185,7 +1185,7 @@ export default function DashboardPage() {
                         <td className="px-3 py-2 whitespace-nowrap overflow-hidden text-ellipsis text-tinta">
                           {formatDateBR(row["Data"] as string)}
                         </td>
-                        <td className="px-3 py-2 whitespace-nowrap overflow-hidden text-ellipsis font-mono text-tinta">
+                        <td className="px-3 py-2 whitespace-nowrap overflow-hidden text-ellipsis font-codigo text-tinta">
                           {row["Serial"] as string}
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap overflow-hidden text-ellipsis text-tinta">
@@ -1358,7 +1358,7 @@ export default function DashboardPage() {
                 <h3 className="font-semibold text-tinta text-sm">Excluir medidor</h3>
                 <p className="text-xs text-aco mt-1">
                   Excluir o medidor serial{" "}
-                  <span className="font-mono font-semibold text-tinta">{deleteTarget.serial}</span>?
+                  <span className="font-codigo font-semibold text-tinta">{deleteTarget.serial}</span>?
                   {" "}Essa ação não pode ser desfeita.
                 </p>
               </div>
@@ -1398,7 +1398,7 @@ export default function DashboardPage() {
               <div>
                 <h3 className="font-semibold text-tinta text-sm">Vincular Serviço</h3>
                 <p className="text-xs text-aco mt-1">
-                  Serial: <span className="font-mono font-semibold text-tinta">{gdisTarget.serial}</span>
+                  Serial: <span className="font-codigo font-semibold text-tinta">{gdisTarget.serial}</span>
                 </p>
               </div>
             </div>
@@ -1411,7 +1411,7 @@ export default function DashboardPage() {
                 value={gdisInput}
                 onChange={(e) => setGdisInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleGdisInline(); }}
-                className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro font-mono"
+                className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro font-codigo"
               />
               <p className="text-[10px] text-aco-claro mt-1">O status será alterado para <strong>CONCLUÍDO</strong> automaticamente.</p>
             </div>
@@ -1446,7 +1446,7 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between p-5 border-b border-nevoa">
               <div>
                 <h3 className="font-semibold text-tinta">Detalhes do Medidor</h3>
-                <p className="text-xs text-aco-claro font-mono mt-0.5">
+                <p className="text-xs text-aco-claro font-codigo mt-0.5">
                   Serial: {modalRow["Serial"] as string}
                 </p>
               </div>
@@ -1486,7 +1486,7 @@ export default function DashboardPage() {
                       type="text"
                       value={editSerial}
                       onChange={(e) => setEditSerial(e.target.value)}
-                      className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro font-mono"
+                      className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro font-codigo"
                     />
                   </div>
                   <div>

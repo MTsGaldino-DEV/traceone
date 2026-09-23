@@ -86,13 +86,13 @@ function RecuperacaoRow({ item, onResolvido, addToast }: RowProps) {
           </span>
         )}
       </td>
-      <td className="px-4 py-3 text-xs text-slate-400 font-mono whitespace-nowrap">{item.serialAtual}</td>
-      <td className="px-4 py-3 text-xs text-slate-600 font-mono whitespace-nowrap">{item.matricula}</td>
+      <td className="px-4 py-3 text-xs text-slate-400 font-codigo whitespace-nowrap">{item.serialAtual}</td>
+      <td className="px-4 py-3 text-xs text-slate-600 font-codigo whitespace-nowrap">{item.matricula}</td>
       <td className="px-4 py-3 text-xs text-slate-600 max-w-[160px] truncate">{item.colaborador}</td>
       <td className="px-4 py-3 text-xs text-slate-500 max-w-[180px] truncate" title={item.tipoEquipamento}>
         {item.tipoEquipamento}
       </td>
-      <td className="px-4 py-3 text-xs text-slate-600 font-mono whitespace-nowrap">
+      <td className="px-4 py-3 text-xs text-slate-600 font-codigo whitespace-nowrap">
         {item.servicoGdis || <span className="text-slate-300">—</span>}
       </td>
       <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{formatarData(item.data)}</td>
@@ -102,7 +102,7 @@ function RecuperacaoRow({ item, onResolvido, addToast }: RowProps) {
             <select
               value={serial}
               onChange={(e) => setSerial(e.target.value)}
-              className="w-40 px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-sinal-claro"
+              className="w-40 px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-codigo font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-sinal-claro"
             >
               {item.candidatosSerial.map((c) => (
                 <option key={c} value={c}>
@@ -123,7 +123,7 @@ function RecuperacaoRow({ item, onResolvido, addToast }: RowProps) {
                 if (e.key === "Enter") handleResolver();
               }}
               placeholder="Serial correto"
-              className={`w-40 px-3 py-1.5 border rounded-lg text-xs font-mono font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all ${
+              className={`w-40 px-3 py-1.5 border rounded-lg text-xs font-codigo font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all ${
                 erro ? "border-red-400 focus:ring-red-300 bg-red-50" : "border-slate-300 focus:ring-sinal-claro focus:border-sinal-claro"
               }`}
             />

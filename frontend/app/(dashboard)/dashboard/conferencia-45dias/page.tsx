@@ -117,10 +117,10 @@ function MedidorRow({ medidor, onVinculado, onOcultar, addToast, ocultando }: Ro
       <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{dataFormatada}</td>
 
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className="font-mono text-sm font-bold text-slate-800">{medidor.serial}</span>
+        <span className="font-codigo text-sm font-bold text-slate-800">{medidor.serial}</span>
       </td>
 
-      <td className="px-4 py-3 text-xs text-slate-600 font-mono whitespace-nowrap">
+      <td className="px-4 py-3 text-xs text-slate-600 font-codigo whitespace-nowrap">
         {medidor.matricula || <span className="text-slate-300">—</span>}
       </td>
 
@@ -140,7 +140,7 @@ function MedidorRow({ medidor, onVinculado, onOcultar, addToast, ocultando }: Ro
             }}
             onKeyDown={handleKeyDown}
             placeholder="Nº serviço GDIS"
-            className={`w-40 px-3 py-1.5 border rounded-lg text-xs font-mono font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all ${
+            className={`w-40 px-3 py-1.5 border rounded-lg text-xs font-codigo font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all ${
               erro
                 ? "border-red-400 focus:ring-red-300 bg-red-50"
                 : jaVinculado
@@ -212,9 +212,9 @@ function OcultoRow({ medidor, onReverter, revertendo }: OcultoRowProps) {
       </td>
       <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{dataFormatada}</td>
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className="font-mono text-sm font-bold text-slate-800">{medidor.serial}</span>
+        <span className="font-codigo text-sm font-bold text-slate-800">{medidor.serial}</span>
       </td>
-      <td className="px-4 py-3 text-xs text-slate-600 font-mono whitespace-nowrap">
+      <td className="px-4 py-3 text-xs text-slate-600 font-codigo whitespace-nowrap">
         {medidor.matricula || <span className="text-slate-300">—</span>}
       </td>
       <td className="px-4 py-3 text-xs text-slate-600 max-w-[180px] truncate">
@@ -377,7 +377,7 @@ export default function Conferencia45DiasPage() {
             value={serialInput}
             onChange={(e) => setSerialInput(e.target.value)}
             placeholder="Buscar serial…"
-            className="w-48 h-9 pl-8 pr-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro font-mono"
+            className="w-48 h-9 pl-8 pr-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro font-codigo"
           />
         </div>
 

@@ -182,15 +182,15 @@ function ConferenciaRow({
       <td className="px-4 py-3 whitespace-nowrap">
         <div className="flex items-center gap-2">
           {isNext && <ChevronRight size={14} className="text-sinal shrink-0" />}
-          <span className="font-mono text-sm font-bold text-slate-800">
+          <span className="font-codigo text-sm font-bold text-slate-800">
             {servico.servico}
           </span>
         </div>
-        <span className="text-xs text-slate-400 font-mono">{terminoFormatado}</span>
+        <span className="text-xs text-slate-400 font-codigo">{terminoFormatado}</span>
       </td>
 
       {/* Matrícula */}
-      <td className="px-4 py-3 text-xs text-slate-600 font-mono whitespace-nowrap">
+      <td className="px-4 py-3 text-xs text-slate-600 font-codigo whitespace-nowrap">
         {servico.matricula ?? <span className="text-slate-300">—</span>}
       </td>
 
@@ -238,7 +238,7 @@ function ConferenciaRow({
             }}
             onKeyDown={handleKeyDown}
             placeholder="Serial do medidor"
-            className={`w-44 px-3 py-1.5 border rounded-lg text-xs font-mono font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all ${
+            className={`w-44 px-3 py-1.5 border rounded-lg text-xs font-codigo font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 transition-all ${
               erro
                 ? "border-red-400 focus:ring-red-300 bg-red-50"
                 : "border-slate-300 focus:ring-sinal-claro focus:border-sinal-claro"
@@ -378,8 +378,8 @@ function AguardandoRow({ servico, onVinculado, onRevertido, onExcluido, onDesatu
   return (
     <tr className="border-b border-amber-100 hover:bg-amber-50/30 transition-colors">
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className="font-mono text-sm font-bold text-slate-800">{servico.servico}</span>
-        <span className="block text-xs text-slate-400 font-mono">{terminoFormatado}</span>
+        <span className="font-codigo text-sm font-bold text-slate-800">{servico.servico}</span>
+        <span className="block text-xs text-slate-400 font-codigo">{terminoFormatado}</span>
       </td>
 
       <td className="px-4 py-3 whitespace-nowrap">
@@ -391,7 +391,7 @@ function AguardandoRow({ servico, onVinculado, onRevertido, onExcluido, onDesatu
               value={novoSerial}
               onChange={(e) => { setNovoSerial(e.target.value); setErro(null); }}
               onKeyDown={(e) => { if (e.key === "Enter") handleCorrigir(); if (e.key === "Escape") setEditando(false); }}
-              className="w-40 px-2 py-1 border border-sinal-claro rounded-lg text-xs font-mono font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-sinal-claro"
+              className="w-40 px-2 py-1 border border-sinal-claro rounded-lg text-xs font-codigo font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-sinal-claro"
             />
             <button
               onClick={handleCorrigir}
@@ -406,14 +406,14 @@ function AguardandoRow({ servico, onVinculado, onRevertido, onExcluido, onDesatu
             </button>
           </div>
         ) : (
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-100 text-amber-800 text-xs font-mono font-bold rounded-md border border-amber-200">
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-100 text-amber-800 text-xs font-codigo font-bold rounded-md border border-amber-200">
             {servico.serial_buscado}
           </span>
         )}
         {erro && <p className="text-[11px] text-red-600 mt-1 font-semibold">{erro}</p>}
       </td>
 
-      <td className="px-4 py-3 text-xs text-slate-600 font-mono whitespace-nowrap">
+      <td className="px-4 py-3 text-xs text-slate-600 font-codigo whitespace-nowrap">
         {servico.matricula ?? <span className="text-slate-300">—</span>}
       </td>
 

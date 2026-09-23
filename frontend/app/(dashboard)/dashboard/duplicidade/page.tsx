@@ -149,7 +149,7 @@ function GrupoDuplicidade({ tipo, chave, medidores, onLinhaAlterada, onRevisado,
           {etiqueta.rotulo}
         </span>
         <span className="text-xs font-bold text-slate-500 uppercase tracking-wide">{etiqueta.campo}</span>
-        <span className="font-mono text-sm font-black text-slate-800">{chave}</span>
+        <span className="font-codigo text-sm font-black text-slate-800">{chave}</span>
         <span className="ml-1 text-xs text-slate-400">
           {tipo === "SERVICO"
             ? `${medidores.length} medidores vinculados`
@@ -184,12 +184,12 @@ function GrupoDuplicidade({ tipo, chave, medidores, onLinhaAlterada, onRevisado,
           {medidores.map((m) => (
             <tr key={m.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
               <td className="px-4 py-2.5">
-                <span className="font-mono text-sm font-bold text-slate-800">{m.serial}</span>
+                <span className="font-codigo text-sm font-bold text-slate-800">{m.serial}</span>
               </td>
-              <td className="px-4 py-2.5 font-mono text-xs text-slate-600 whitespace-nowrap">
+              <td className="px-4 py-2.5 font-codigo text-xs text-slate-600 whitespace-nowrap">
                 {m.servicoGdis ?? <span className="text-slate-300 font-sans">—</span>}
               </td>
-              <td className="px-4 py-2.5 text-xs text-slate-600 font-mono whitespace-nowrap">{m.matricula}</td>
+              <td className="px-4 py-2.5 text-xs text-slate-600 font-codigo whitespace-nowrap">{m.matricula}</td>
               <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">{m.colaborador}</td>
               <td className="px-4 py-2.5 whitespace-nowrap">
                 <StatusMedidor
@@ -278,12 +278,12 @@ function RevisadoRow({ revisado, onRevertido, addToast }: RevisadoRowProps) {
         </span>
       </td>
       <td className="px-4 py-3 whitespace-nowrap">
-        <span className="font-mono text-sm font-bold text-slate-800">{revisado.chave}</span>
+        <span className="font-codigo text-sm font-bold text-slate-800">{revisado.chave}</span>
       </td>
       <td className="px-4 py-3">
         <div className="flex flex-wrap gap-1.5">
           {revisado.itensConflitantes.map((s) => (
-            <span key={s} className="font-mono text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+            <span key={s} className="font-codigo text-xs font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
               {s}
             </span>
           ))}

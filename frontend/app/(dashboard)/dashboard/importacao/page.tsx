@@ -513,7 +513,7 @@ function CollapsibleList({
         <div className="border-t border-current/10 max-h-48 overflow-y-auto divide-y divide-current/10">
           {items.map((item) => (
             <div key={item.serial} className="px-4 py-2 text-xs flex gap-3">
-              <span className="font-mono font-semibold shrink-0">{item.serial}</span>
+              <span className="font-codigo font-semibold shrink-0">{item.serial}</span>
               <span className="opacity-70 truncate">{item.detail}</span>
             </div>
           ))}
@@ -632,7 +632,7 @@ function GdisTab() {
                     key={m.matricula}
                     className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2 bg-white border border-red-200 rounded-lg"
                   >
-                    <span className="font-mono font-bold text-sm uppercase">{m.matricula}</span>
+                    <span className="font-codigo font-bold text-sm uppercase">{m.matricula}</span>
                     {m.nome && <span className="text-sm font-semibold">{m.nome}</span>}
                     <span className="text-xs text-red-600">não existe no cadastro</span>
                   </li>
@@ -764,8 +764,8 @@ function GdisTab() {
                       <tbody>
                         {parsed.rows.slice(0, 5).map((row, i) => (
                           <tr key={i} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
-                            <td className="px-3 py-2 font-mono font-semibold text-slate-800">{row.servico}</td>
-                            <td className="px-3 py-2 font-mono text-slate-600">{row.matricula ?? "—"}</td>
+                            <td className="px-3 py-2 font-codigo font-semibold text-slate-800">{row.servico}</td>
+                            <td className="px-3 py-2 font-codigo text-slate-600">{row.matricula ?? "—"}</td>
                             <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{row.termino.slice(0, 10)}</td>
                             <td className="px-3 py-2 text-slate-600">{row.cod_serv ?? "—"}</td>
                             <td className="px-3 py-2 text-slate-600">{row.tipo_serv ?? "—"}</td>

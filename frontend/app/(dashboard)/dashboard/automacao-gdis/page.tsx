@@ -666,7 +666,7 @@ export default function AutomacaoGdisPage() {
                   value={cnpj}
                   onChange={(e) => setCnpj(e.target.value)}
                   placeholder="00.000.000/0000-00"
-                  className="w-48 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sinal-claro"
+                  className="w-48 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-codigo focus:outline-none focus:ring-2 focus:ring-sinal-claro"
                 />
               </div>
               <div>
@@ -678,7 +678,7 @@ export default function AutomacaoGdisPage() {
                   value={inscEstadual}
                   onChange={(e) => setInscEstadual(e.target.value)}
                   placeholder="0000000000000"
-                  className="w-48 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-mono focus:outline-none focus:ring-2 focus:ring-sinal-claro"
+                  className="w-48 px-3 py-1.5 border border-slate-300 rounded-lg text-xs font-codigo focus:outline-none focus:ring-2 focus:ring-sinal-claro"
                 />
               </div>
               <button
@@ -765,7 +765,7 @@ export default function AutomacaoGdisPage() {
             <span className="ml-auto text-[11px] text-slate-600">{logs.length} linhas</span>
           </button>
           {logAberto && (
-            <div ref={logBoxRef} className="max-h-64 overflow-y-auto py-2 font-mono text-[11px]">
+            <div ref={logBoxRef} className="max-h-64 overflow-y-auto py-2 font-codigo text-[11px]">
               {logs.length === 0 ? (
                 <p className="px-4 py-3 text-slate-600">Nenhum log ainda.</p>
               ) : (
@@ -945,10 +945,10 @@ export default function AutomacaoGdisPage() {
                                 {ROTULO_FILA[item.origem]}
                               </span>
                             </td>
-                            <td className="px-4 py-2.5 font-mono text-sm font-bold text-slate-800 whitespace-nowrap">
+                            <td className="px-4 py-2.5 font-codigo text-sm font-bold text-slate-800 whitespace-nowrap">
                               {item.servicoGdis}
                             </td>
-                            <td className="px-4 py-2.5 text-xs text-slate-600 font-mono whitespace-nowrap">
+                            <td className="px-4 py-2.5 text-xs text-slate-600 font-codigo whitespace-nowrap">
                               {item.matricula ?? <span className="text-slate-300">—</span>}
                             </td>
                             <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[150px] truncate">
@@ -1000,7 +1000,7 @@ export default function AutomacaoGdisPage() {
                                       setSeriaisEditados((prev) => ({ ...prev, [item.chave]: e.target.value }))
                                     }
                                     placeholder="—"
-                                    className="w-36 px-2 py-1 border border-slate-300 rounded-lg text-xs font-mono font-semibold focus:outline-none focus:ring-2 focus:ring-sinal-claro"
+                                    className="w-36 px-2 py-1 border border-slate-300 rounded-lg text-xs font-codigo font-semibold focus:outline-none focus:ring-2 focus:ring-sinal-claro"
                                   />
                                   <button
                                     type="button"

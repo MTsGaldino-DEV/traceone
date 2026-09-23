@@ -123,7 +123,7 @@ function SapSearch({ tipos, selected, onSelect }: SapSearchProps) {
                   <button key={t.cod_sap} type="button"
                     onMouseDown={(e) => { e.preventDefault(); onSelect(t); setQuery(""); setOpen(false); }}
                     className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-sinal-fundo transition-colors text-left">
-                    <span className="font-mono text-sm font-bold text-[#1e3a5f] w-16 shrink-0">{t.cod_sap}</span>
+                    <span className="font-codigo text-sm font-bold text-[#1e3a5f] w-16 shrink-0">{t.cod_sap}</span>
                     <span className="text-sm text-slate-700 truncate flex-1">{t.tipo}</span>
                     <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${t.ligacao === "direto" ? "bg-green-100 text-green-700" : "bg-orange-100 text-orange-700"}`}>
                       {t.ligacao === "direto" ? "Direto" : "Indireto"}
@@ -192,7 +192,7 @@ function ColabSearch({ colaboradores, selected, onSelect }: ColabSearchProps) {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-bold text-slate-900">{selected.nome}</p>
-            <p className="text-xs font-mono text-slate-500">{selected.matricula}</p>
+            <p className="text-xs font-codigo text-slate-500">{selected.matricula}</p>
             {selected.supervisor && <p className="text-xs text-emerald-600 font-semibold mt-0.5">Supervisor: {selected.supervisor}</p>}
           </div>
           <button type="button" onClick={() => onSelect(null)}
@@ -224,7 +224,7 @@ function ColabSearch({ colaboradores, selected, onSelect }: ColabSearchProps) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-slate-900">{c.nome}</p>
-                      <p className="text-xs font-mono text-slate-500">{c.matricula}</p>
+                      <p className="text-xs font-codigo text-slate-500">{c.matricula}</p>
                     </div>
                     {c.supervisor && <span className="text-xs font-medium text-slate-400 shrink-0">{c.supervisor}</span>}
                   </button>
@@ -275,7 +275,7 @@ function ModalConflitoReatribuicao({
           <div className="flex items-center gap-2 p-3 bg-slate-50 rounded-xl border border-slate-200">
             <Barcode size={16} className="text-slate-500 shrink-0" />
             <span className="text-xs text-slate-500 font-semibold">Serial:</span>
-            <span className="text-sm font-mono font-bold text-slate-900">{conflito.serial}</span>
+            <span className="text-sm font-codigo font-bold text-slate-900">{conflito.serial}</span>
           </div>
 
           <div className="p-4 bg-red-50 border border-red-200 rounded-xl space-y-1.5">
@@ -283,7 +283,7 @@ function ModalConflitoReatribuicao({
             <div className="flex items-center gap-2">
               <User size={14} className="text-red-500 shrink-0" />
               <span className="text-sm font-bold text-red-900">{conflito.nome_colaborador}</span>
-              <span className="text-xs font-mono text-red-600 bg-red-100 px-1.5 py-0.5 rounded">{conflito.matricula_atual}</span>
+              <span className="text-xs font-codigo text-red-600 bg-red-100 px-1.5 py-0.5 rounded">{conflito.matricula_atual}</span>
             </div>
             <div className="flex items-center gap-3 text-xs text-red-700">
               <span className="flex items-center gap-1"><CalendarDays size={12} /> Desde {formatDateBR(conflito.data_atribuicao)}</span>
@@ -305,7 +305,7 @@ function ModalConflitoReatribuicao({
                 <div className="flex items-center gap-2">
                   <User size={14} className="text-emerald-500 shrink-0" />
                   <span className="text-sm font-bold text-emerald-900">{nomeNovaMatricula}</span>
-                  <span className="text-xs font-mono text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded">{novaMatricula}</span>
+                  <span className="text-xs font-codigo text-emerald-600 bg-emerald-100 px-1.5 py-0.5 rounded">{novaMatricula}</span>
                 </div>
               </div>
             </>
@@ -621,7 +621,7 @@ export default function LancamentoManualPage() {
                 onChange={(e) => setSerialInput(e.target.value)}
                 placeholder="AMN258018041, AMN258018045, AMN258018188..."
                 rows={4}
-                className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-mono font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sinal focus:border-sinal transition-all resize-none"
+                className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-codigo font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sinal focus:border-sinal transition-all resize-none"
               />
             </div>
 
@@ -670,7 +670,7 @@ export default function LancamentoManualPage() {
                     }
 
                     return (
-                      <div key={i} className={`inline-flex items-center gap-1.5 px-2.5 py-1 border rounded-lg text-xs font-mono font-semibold ${chipClass}`}>
+                      <div key={i} className={`inline-flex items-center gap-1.5 px-2.5 py-1 border rounded-lg text-xs font-codigo font-semibold ${chipClass}`}>
                         <span className={`w-4 h-4 text-white text-[9px] rounded-full flex items-center justify-center font-bold shrink-0 ${badgeClass}`}>
                           {badgeContent}
                         </span>

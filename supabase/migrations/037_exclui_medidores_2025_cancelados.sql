@@ -11,7 +11,17 @@
 -- medidores_list(id) além de medidor_logs (sem FK formal, mas com dados) e
 -- conferencia_45dias_ocultos/medidor_recuperacao_pendente (ON DELETE
 -- CASCADE, sem linhas afetadas aqui). Backup completo antes do DELETE.
+--
+-- IMPORTANTE: rode o arquivo INTEIRO de uma vez só (não selecione um trecho
+-- para executar separadamente). _alvo_exclusao é TEMP TABLE — só existe
+-- dentro da conexão/sessão que a criou. O BEGIN/COMMIT abaixo garante que
+-- tudo roda como uma única transação, mesmo atrás do pooler de transação
+-- (porta 6543): sem isso, cada instrução pode cair numa conexão de backend
+-- diferente e a tabela temporária "some" para as instruções seguintes —
+-- foi exatamente o erro 42P01 (relation does not exist).
 -- =============================================================================
+
+BEGIN;
 
 CREATE TEMP TABLE _alvo_exclusao AS
 SELECT m.id
@@ -276,6 +286,8 @@ USING  _alvo_exclusao a
 WHERE  m.id = a.id;
 
 DROP TABLE _alvo_exclusao;
+
+COMMIT;
 
 -- Conferir depois de rodar:
 --   SELECT count(*) FROM backup_medidores_2025_excluidos;  -- deve dar 234

@@ -168,6 +168,20 @@ function ColabSearch({ colaboradores, selected, onSelect }: ColabSearchProps) {
     [colaboradores, query]
   );
 
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      if (filtered.length === 1) {
+        onSelect(filtered[0]);
+        setQuery("");
+        setOpen(false);
+      } else {
+        const exact = filtered.find((c) => c.matricula.toLowerCase() === query.trim().toLowerCase());
+        if (exact) { onSelect(exact); setQuery(""); setOpen(false); }
+      }
+    }
+  };
+
   return (
     <div ref={ref} className="relative">
       <label className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 block">Colaborador / Matrícula</label>
@@ -192,7 +206,7 @@ function ColabSearch({ colaboradores, selected, onSelect }: ColabSearchProps) {
             <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input type="text" value={query}
               onChange={(e) => { setQuery(e.target.value); setOpen(true); }}
-              onFocus={() => setOpen(true)}
+              onFocus={() => setOpen(true)} onKeyDown={handleKeyDown}
               placeholder="Buscar por matrícula ou nome..."
               className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all"
             />

@@ -51,5 +51,6 @@ yarn-error.log*
 # Temp/scripts
 replacements.txt
 
-\Importação
+/Importação/
+/backup/
 .claude/

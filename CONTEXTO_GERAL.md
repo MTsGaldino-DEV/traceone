@@ -1,486 +1,773 @@
 # Contexto Geral: Projeto TraceOne — Controle de Medidores
 
-> **Atualizado em:** 2026-08-06
-> **Ponto de entrada** para qualquer novo desenvolvedor ou IA no projeto.
+> **Atualizado em:** 2026-09-23
+> **Para que serve este documento:** ponto de entrada único para qualquer desenvolvedor ou IA que vá trabalhar no TraceOne — inclusive para **construir o aplicativo Android** a partir do mesmo backend. Tudo que é necessário para consumir o sistema (credenciais públicas, schema, RPCs, regras de permissão, regras de negócio, identidade visual) está aqui.
 
 ---
 
-## 1. O Que É o TraceOne
+## Índice
 
-Sistema web de rastreamento de medidores de energia elétrica para uso interno de uma concessionária de energia (utilities). O fluxo central é:
+1. [O que é o TraceOne](#1-o-que-é-o-traceone)
+2. [Arquitetura](#2-arquitetura)
+3. [Conexão com o backend (o que o app Android precisa)](#3-conexão-com-o-backend-o-que-o-app-android-precisa)
+4. [Autenticação e sessão](#4-autenticação-e-sessão)
+5. [Papéis e permissões](#5-papéis-e-permissões)
+6. [Modelo de dados completo](#6-modelo-de-dados-completo)
+7. [View, triggers e automatismos do banco](#7-view-triggers-e-automatismos-do-banco)
+8. [Catálogo de RPCs](#8-catálogo-de-rpcs)
+9. [Telas e fluxos](#9-telas-e-fluxos)
+10. [Regras de negócio](#10-regras-de-negócio)
+11. [Armadilhas conhecidas](#11-armadilhas-conhecidas)
+12. [Identidade visual](#12-identidade-visual)
+13. [Guia para o app Android](#13-guia-para-o-app-android)
+14. [Ambiente, deploy e scripts](#14-ambiente-deploy-e-scripts)
+15. [Histórico de decisões relevantes](#15-histórico-de-decisões-relevantes)
+16. [Próximos passos](#16-próximos-passos)
 
-1. Medidores são **entregues fisicamente** a técnicos de campo (colaboradores)
-2. Os técnicos instalam os medidores e executam serviços registrados no GDIS (sistema SAP interno)
-3. O TraceOne **cruza** os medidores entregues com os serviços executados e garante que nenhum medidor fique sem baixa
+---
 
-**Público-alvo:** gestores operacionais que acompanham status de instalação em tempo real.  
+## 1. O que é o TraceOne
+
+Sistema interno de rastreamento de medidores de energia elétrica, usado por uma empresa contratada de concessionária de energia. O fluxo central é:
+
+1. Medidores são **entregues fisicamente** a técnicos de campo (colaboradores) — isso vira uma linha `PENDENTE` em `medidores_list`.
+2. O técnico instala o medidor e executa um serviço registrado no **GDIS** (sistema web interno do cliente, rodando em rede local) / SAP.
+3. O TraceOne **cruza** os medidores entregues com os serviços executados e garante que nenhum medidor fique sem baixa. Quando o serviço é vinculado ao serial, o medidor vira `CONCLUIDO`.
+4. O que fica pendente por muito tempo (+45 dias) vira cobrança/risco financeiro — daí as telas de conferência e os KPIs em R$.
+
+**Público-alvo:** gestores operacionais, supervisores, almoxarifado e despachantes.
 **Uso:** diário, decisões rápidas sobre reatribuições e pendências financeiras.
 
+### Glossário de domínio
+
+| Termo | Significado |
+|---|---|
+| **Serial** | Número de série gravado no medidor físico. É a chave prática do rastreio. |
+| **Material SAP / cod_sap** | Código do material no SAP, identifica o modelo do equipamento (`tipos_de_medidores.cod_sap`). Define o valor em R$. |
+| **Matrícula** | Identificador do colaborador (ex.: `e253433`). **Sempre normalizada para minúsculo** por trigger no banco. Matrícula que começa com `C` é de terceiro e não entra no cadastro. |
+| **GDIS** | Sistema do cliente onde o serviço executado é registrado. Cada serviço tem um número (`servicos_report.servico`). |
+| **Serviço GDIS** | Número do serviço que dá baixa no medidor. |
+| **GC / GO** | Gerência de Campo / Gerência Operacional — agrupamentos hierárquicos do colaborador. |
+| **Supervisor** | Campo texto em `colaboradores` (não é FK para usuário do sistema). |
+| **TC / Chave de aferição** | Outros equipamentos do catálogo, além dos medidores. Ficam **de fora** da detecção de duplicidade (podem dividir serviço com o medidor legitimamente). |
+| **Planilha Juliana** | Exportação semanal do SAP com o estado atual dos medidores em campo, usada para sincronizar o banco. |
+| **Planilha PC** | Planilha de serviços concluídos, importada para vincular medidor ↔ serviço em lote. |
+
 ---
 
-## 2. Stack Tecnológica
+## 2. Arquitetura
+
+```
+┌──────────────────┐        ┌──────────────────────────────┐
+│  Frontend web    │        │  Supabase (PostgreSQL)       │
+│  Next.js 16      │◄──────►│  - Tabelas + View            │
+│  (Docker :3000)  │  HTTPS │  - RLS por role              │
+└────────┬─────────┘        │  - RPCs (regras de negócio)  │
+         │                  │  - Auth (GoTrue)             │
+         │ service_role     └──────────────────────────────┘
+         │ (só server-side)                ▲
+┌────────▼─────────┐                       │ mesma API REST/PostgREST
+│ /api/users       │                       │
+│ (Route Handlers) │        ┌──────────────┴───────────────┐
+└──────────────────┘        │  App Android (a construir)   │
+                            │  supabase-kt                 │
+┌──────────────────┐        └──────────────────────────────┘
+│ Conector local   │
+│ Node + Playwright│  só desktop, rede interna
+│ localhost:3334   │──► GDIS (192.168.122.110)
+└──────────────────┘
+```
+
+**Ponto-chave para o Android:** quase toda a lógica de negócio mora **no banco** (RPCs + triggers + RLS), não no frontend. O app Android fala direto com o Supabase e herda as mesmas regras, sem precisar de backend próprio. A única exceção é a gestão de usuários (criar/editar/excluir), que passa pelas rotas `/api/users` do Next.js porque exige a `service_role key`.
+
+### Stack atual (web)
 
 | Camada | Tecnologia |
 |---|---|
-| Frontend | Next.js 15 (App Router), React, Tailwind CSS |
-| Gráficos | Recharts (PieChart/donut) |
+| Frontend | Next.js 16.2 (App Router), React 19, Tailwind CSS v4 |
+| Gráficos | Componentes vendorizados do Bklit UI (`@visx`, `motion`, `@number-flow/react`) — Recharts foi removido |
 | Ícones | Lucide React |
-| Parser de planilhas | `xlsx` (lê `.xlsx` e `.csv` no browser) |
-| Backend / DB | Supabase (PostgreSQL) — Triggers, Views, RPCs, RLS |
-| Deploy | Docker (`docker compose build && up -d`) |
+| Planilhas | `xlsx` (lê `.xlsx` e `.csv` no browser) |
+| Backend / DB | Supabase (PostgreSQL) — Triggers, View, RPCs, RLS |
+| Auth | Supabase Auth (GoTrue), e-mail + senha |
+| Deploy | Docker (`docker compose build && up -d`), porta 3000 |
+
+> `frontend/AGENTS.md` avisa: esta versão do Next.js tem breaking changes em relação ao conhecimento comum — consultar `node_modules/next/dist/docs/` antes de escrever código de framework.
 
 ---
 
-## 3. Estrutura de Rotas
+## 3. Conexão com o backend (o que o app Android precisa)
+
+### Credenciais
 
 ```
-/login                                   — Autenticação
-/register                                — Cadastro
-
-/(dashboard)/layout.tsx                  — Shell: sidebar + proteção de rota
-
-/(dashboard)/dashboard/page.tsx          — ★ Lista de Medidores (principal)
-/(dashboard)/dashboard/importacao/       — Importação de planilhas (2 abas)
-/(dashboard)/dashboard/lancamento/       — Lançamento manual de medidores
-/(dashboard)/dashboard/conferencia/      — Conferência de serviços GDIS
+NEXT_PUBLIC_SUPABASE_URL  = https://ctlaygzndbaojxpwqsco.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN0bGF5Z3puZGJhb2p4cHdxc2NvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUyNTMwNDcsImV4cCI6MjEwMDgyOTA0N30.tEVFvFN9LP1m9fYp3DFh2xJYarlkiqo6kICFgl0AWL8
 ```
 
----
+- A **anon key é pública por natureza** (vai embutida no bundle web e pode ir no app Android). Toda a proteção real vem da RLS, que avalia o JWT do usuário logado.
+- A **`SUPABASE_SERVICE_ROLE_KEY` nunca pode ir para o app**. Ela só existe em variável de ambiente do container e é usada exclusivamente nos route handlers `frontend/app/api/users/*`.
+- Endpoints derivados: REST/PostgREST em `<url>/rest/v1/`, Auth em `<url>/auth/v1/`, RPC em `<url>/rest/v1/rpc/<nome>`.
 
-## 4. Banco de Dados
+### SDK sugerido no Android
 
-### 4.1 Tabelas Principais
+`supabase-kt` (`io.github.jan-tennert.supabase`), módulos `postgrest-kt` + `auth-kt`. Equivalências diretas com o que o web usa:
 
-| Tabela | Descrição |
+| Web (`supabase-js`) | Android (`supabase-kt`) |
 |---|---|
-| `tipos_de_medidores` | Catálogo de equipamentos: código SAP, tipo, ligação (direto/indireto), valor unitário (R$) |
-| `colaboradores` | Técnicos: matrícula (PK), nome, supervisor, gc, go, ativo |
-| `medidores_list` | Registro de entrega: serial, material_sap, matricula (FK), data, status, servico_gdis, data_conclusao |
-| `servicos_report` | Importações do GDIS: numero de serviço, matricula, termino, status_conferencia, serial_buscado |
-| `medidor_logs` | Log de eventos por medidor: cadastro, conclusão, vinculação, reatribuição, reabertura |
-| `profiles` | Usuários do sistema (Supabase Auth) |
+| `supabase.from('x').select()` | `postgrest.from("x").select()` |
+| `supabase.rpc('nome', params)` | `postgrest.rpc("nome", params)` |
+| `supabase.auth.signInWithPassword` | `auth.signInWith(Email)` |
+| `.range(from, to)` | `Count`/`Range` no `select { range(...) }` |
 
-### 4.2 View
+### Gestão de usuários pelo app (opcional)
 
-- **`vw_medidores_completo`** — une `medidores_list` + `colaboradores` + `tipos_de_medidores`. Expõe colunas formatadas em PT: `"Serial"`, `"COLABORADOR"`, `"SUPERVISOR"`, `"SERVIÇO GDIS"`, `"Concluído/Pendente"`, `"VALOR"`, `"DIAS DE ATRIBUIÇÃO"`, `"Data da conclusão"`, `"EQUIPAMENTO"` etc.
+Se o app precisar criar/editar/excluir usuários, ele **não** faz isso via Supabase direto — chama o host do web app:
 
-### 4.3 Enums
+- `GET /api/users` — lista perfis + e-mails
+- `POST /api/users` — `{ name, email, role }`, cria com senha padrão `123456` e `email_confirm: true`
+- `PATCH /api/users/{id}` — `{ name?, email?, role?, is_active? }`
+- `DELETE /api/users/{id}`
 
-- **`status_medidor`**: `PENDENTE` | `CONCLUIDO` | `REATRIBUIDO`
-- **`status_conferencia`**: `PENDENTE` | `AGUARDANDO_VINCULACAO` | `CONFERIDO`
-
-### 4.4 Migrations (ordem de aplicação)
-
-| # | Arquivo | O que faz |
-|---|---|---|
-| 000 | `drop_all.sql` | Reset total do schema |
-| 001 | `initial_schema.sql` | Tabelas base, enums, indexes |
-| 002 | `rls_policies.sql` | Políticas Row Level Security |
-| 003 | `rpc_functions.sql` | RPC `match_medidores` (conciliação automática) |
-| 004 | `reatribuicao.sql` | Status `REATRIBUIDO`, colunas de auditoria, índice único parcial |
-| 005 | `rpc_verificar.sql` | RPC `verificar_medidor_atribuido` |
-| 006 | `rpc_reatribuir.sql` | RPC `reatribuir_medidor` |
-| 007 | `conferencia_servicos.sql` | Coluna `status_conferencia` + `serial_buscado` em `servicos_report` |
-| 008 | `rpc_vincular_servico.sql` | RPC `vincular_servico_medidor` |
-| 009 | `aguardando_vinculacao.sql` | Status `AGUARDANDO_VINCULACAO` no enum |
-| 010 | `fn_tentar_vincular_serial.sql` | Função interna `_tentar_vincular_serial` — seta `status=CONCLUIDO` no medidor ao vincular |
-| 011 | `update_vincular_servico.sql` | Atualização da RPC de vinculação |
-| 012 | `trigger_vinculacao_automatica.sql` | Trigger: ao inserir medidor `PENDENTE`, tenta vincular serviços em `AGUARDANDO_VINCULACAO` automaticamente |
-| 013 | `rpc_verificar_pendentes.sql` | RPC `verificar_vinculacoes_pendentes` (retorna contagem) |
-| 014 | `rpc_get_metrics.sql` | Função `get_medidores_metrics` (escrita mas métricas resolvidas client-side) |
-| 015 | `medidor_logs.sql` | Tabela `medidor_logs` + trigger `trg_log_medidor_evento` + backfill de histórico |
-| 016 | `role_hierarchy_enum.sql` | Renomeia `ALMOXARIFE` → `ALMOXARIFADO` no enum `role_type`; adiciona `SUPERVISOR` e `DESPACHANTE` |
-| 017 | `role_hierarchy_rls.sql` | Atualiza policies de escrita pros 5 roles (ver seção 11) |
-| 018 | `remove_allow_all_policies.sql` | Remove policies `allow_all_*` não versionadas que liberavam acesso total a `public` |
-| 019 | `fix_handle_new_user_default_role.sql` | Corrige literal `'ALMOXARIFE'` hardcoded (quebrado pela renomeação em 016) na trigger `handle_new_user` |
-| 020 | `fix_handle_new_user_search_path.sql` | Fixa `search_path = public` na trigger `handle_new_user` (bug que impedia criação de QUALQUER usuário via Auth API/painel — ver seção 11.3) |
+Todas exigem header `Authorization: Bearer <access_token>` do usuário logado; o guard `requireManager()` (`frontend/lib/api-auth.ts`) valida que o chamador é `ADMIN`, `GESTOR` ou `SUPERVISOR`.
 
 ---
 
-## 5. Funcionalidades em Detalhe
+## 4. Autenticação e sessão
 
-### 5.1 Lista de Medidores (`/dashboard`)
+- **Login:** e-mail + senha (`signInWithPassword`). Não há OAuth/social login.
+- **Perfil:** após o login, ler `profiles` filtrando por `id = auth.uid()` para obter `name`, `role` e `is_active`. O `role` determina todo o resto (menu, botões, o que o banco aceita).
+- **Criação de usuário:** só por quem gerencia usuários. O usuário novo nasce com **senha temporária `123456`** (constante `DEFAULT_PASSWORD` em `frontend/lib/permissions.ts`). O admin nunca conhece a senha definitiva de ninguém.
+- **Primeiro acesso:** o usuário entra com a senha temporária → é levado a `/reset-senha` → define a senha definitiva com `updateUser({ password })` → é deslogado e volta ao login.
+- **Esqueci minha senha:** `resetPasswordForEmail(email, { redirectTo: <origin>/reset-senha })`.
+- **Trocar a própria senha logado:** reautentica com `signInWithPassword` (valida a senha atual) e então `updateUser({ password })`. Sem service role.
+- **Expiração/logout:** o web escuta `onAuthStateChange` e redireciona para `/login` quando a sessão cai. No Android, o `supabase-kt` já persiste e renova a sessão — basta observar o `SessionStatus`.
 
-A tela principal do sistema. Dividida em 3 blocos:
-
-#### Dashboard de Métricas
-
-**KPI Cards (5 cards em grid `auto-fit minmax(180px, 1fr)`):**
-- Valor Pendente (R$) — soma dos medidores com status `PENDENTE`
-- Valor Concluído (R$) — soma dos medidores com status `CONCLUIDO`
-- Valor Total (R$) — soma geral
-- +45 Dias Pendente — medidores em campo há mais de 45 dias (alerta crítico, vermelho)
-- Média de Dias — média de dias em campo dos pendentes
-
-**Donut Chart (Recharts PieChart):**
-- Anel com pendentes (âmbar) e concluídos (verde)
-- Total absoluto no centro do anel
-- Legenda lateral estruturada: nome + valor absoluto + % do total
-
-**Top 10 — Valor Pendente:**
-- Ranking dos 10 técnicos com maior valor de medidores pendentes em mãos
-- Barra de progresso proporcional (barra #1 = 100%, demais escaladas)
-- Posições 1–3 com badge âmbar destacado
-- **Clicável e multiselect:** clicar em um técnico filtra a tabela pelos medidores dele; clicar em mais técnicos acumula o filtro; botão "Limpar seleção" no cabeçalho
-- Redimensionável verticalmente via `resize: vertical` (drag no canto inferior direito)
-- Scroll interno com header fixo quando a lista ultrapassa a altura disponível
-
-> **Performance:** `getMedidoresMetrics` pagina em batches de 1.000 registros (limite Supabase) acumulando todos os dados localmente antes de calcular — garante que o total seja o real (16.137+) e não o limite da primeira página.
-
-#### Painel de Filtros
-
-Todos os filtros são aplicados simultaneamente. Trigger: qualquer mudança recarrega a tabela + recalcula as métricas.
-
-| Filtro | Tipo | Descrição |
-|---|---|---|
-| Colaborador | `ColabMultiSelect` | Busca por **nome ou matrícula**; exibe nome + matrícula; multiselect |
-| Supervisor | `MultiSelectSearch` | Lista de supervisores únicos; multiselect |
-| GC | `MultiSelectSearch` | Gerência de Campo; multiselect |
-| GO | `MultiSelectSearch` | Gerência Operacional; multiselect |
-| Serial | Texto | Busca parcial; múltiplos separados por vírgula |
-| Serviço GDIS | Texto | Busca parcial no número de serviço |
-| Status | `MultiSelectSearch` | `PENDENTE` / `CONCLUIDO` |
-| Material | `MultiSelectSearch` | Categoria: Medidores / TC / Chave De Aferição |
-| Data Atrib. | Intervalo de datas | Início e fim da data de atribuição |
-| Data Conclusão | Intervalo de datas | Início e fim da data de conclusão |
-
-> Filtros GC e GO resolvem internamente para matrículas (`buildFinalMatriculas`) antes de consultar o banco.
-
-#### Tabela de Medidores
-
-- **Colunas:** Data Atrib. · Serial · Colaborador · Supervisor · Serviço GDIS · Status · Dias · Conclusão · Ações
-- `table-layout: fixed` com `<colgroup>` — sem drift entre header e body
-- `text-overflow: ellipsis` em colunas de texto variável
-- Paginação de 50 registros por página com navegação (primeira/anterior/próxima/última)
-- **Ordenação personalizada:** modal "Ordenar" com toggle por coluna (crescente → decrescente → sem ordenação)
-- **Coluna Ações:**
-  - 👁 **Ver / Editar** — abre modal de edição completa
-  - 🔗 **Vincular Serviço** — botão verde visível apenas em linhas `PENDENTE`; abre mini-modal para digitar o nº GDIS e já marca como `CONCLUIDO` automaticamente
-  - 🗑 **Excluir** — abre modal de confirmação com serial; exclusão otimista (linha some imediatamente, reverte com erro se falhar)
-
-#### Modal de Edição / Detalhes
-
-Exibe informações somente-leitura: Supervisor (atualiza dinamicamente ao trocar colaborador) · Equipamento · Dias Atribuído · Valor (atualiza ao trocar material).
-
-Campos editáveis:
-- **Serial** — texto livre
-- **Material SAP** — `<select>` populado com `tipos_de_medidores` (todos, incluindo inativos); formato `cod_sap — tipo`; ao trocar, exibe a ligação (direto/indireto) abaixo e atualiza o Valor no painel read-only
-- **Serviço GDIS** — texto livre; ao salvar com qualquer valor preenchido, força automaticamente `status = CONCLUIDO` e preenche `data_conclusao` com hoje (se vazia); ao salvar em branco, limpa o campo no banco (`null` explícito)
-- **Data de Atribuição** · **Status** (select PENDENTE/CONCLUIDO) · **Data de Conclusão**
-- **Colaborador** — autocomplete por nome ou matrícula; ao selecionar, preenche automaticamente o Supervisor no painel read-only
-
-**Log de Atividades** — linha do tempo exibida no final do modal com todos os eventos do medidor:
-
-| Evento | Cor | Quando é gerado |
-|---|---|---|
-| Cadastrado | Azul | INSERT em `medidores_list` |
-| Concluído | Verde escuro | UPDATE status `PENDENTE → CONCLUIDO` |
-| Serviço vinculado | Verde claro | UPDATE `servico_gdis` sem mudança de status |
-| Serviço removido | Cinza | `servico_gdis` setado para NULL |
-| Reaberto | Âmbar | UPDATE status `CONCLUIDO → PENDENTE` |
-| Reatribuído | Roxo | UPDATE `matricula` |
-| Editado | Cinza | UPDATE `material_sap` |
-
-> O log é gerado pelo trigger `trg_log_medidor_evento` em `medidores_list`. Backfill aplicado para registros existentes na migration 015.
-
-#### Exportar CSV
-
-Botão "Exportar CSV" respeita **todos os filtros e ordenações** ativos — exporta exatamente o que está sendo visto, em todas as páginas (não só a página atual). UTF-8 com BOM para compatibilidade Excel.
+> Existiu um fluxo anterior por convite de e-mail (`inviteUserByEmail`). Foi **substituído a pedido explícito do dono do projeto** pela senha padrão. Não reintroduzir sem confirmar.
 
 ---
 
-### 5.2 Lançamento de Medidores (`/lancamento`)
+## 5. Papéis e permissões
 
-Operador registra a **entrega física** de medidores a um técnico.
+`role_type` (enum): `ADMIN` · `GESTOR` · `SUPERVISOR` · `ALMOXARIFADO` · `DESPACHANTE`
 
-**Formulário:**
-- **Colaborador** — autocomplete por nome ou matrícula
-- **Data de Atribuição** — padrão: hoje
-- **Material SAP** — busca por código ou descrição no catálogo `tipos_de_medidores`
-- **Seriais** — campo de texto livre; múltiplos seriais separados por Enter ou vírgula
+### Matriz de acesso
 
-**Validação em tempo real de cada serial:**
-- ✅ Disponível — nenhum registro ativo com aquele serial
-- ⚠️ Conflito — já existe um medidor `PENDENTE` com esse serial
+| Capacidade | ADMIN | GESTOR | SUPERVISOR | ALMOXARIFADO | DESPACHANTE |
+|---|:--:|:--:|:--:|:--:|:--:|
+| Ler todas as tabelas operacionais | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Escrever em `medidores_list`, `colaboradores`, `tipos_de_medidores`, `servicos_report` | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Gerenciar usuários (`profiles`, `/api/users`) | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Gestão de colaboradores (tela) | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Forçar importação GDIS com matrícula não cadastrada | ✅ | ✅ | ✅ | ❌ | ❌ |
+| Recuperação de Dados / Automação GDIS | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Ocultar item da Conferência +45 dias / marcar duplicidade revisada | ✅ | ✅ | ✅ | ✅ | ❌ |
 
-**Fluxo com conflito (Reatribuição):**
-1. Serial já atribuído é detectado via RPC `verificar_medidor_atribuido`
-2. Modal de conflito exibe: técnico atual, data de atribuição original, supervisor
-3. Operador pode confirmar reatribuição → RPC `reatribuir_medidor` marca o registro anterior como `REATRIBUIDO` e cria novo registro, mantendo trilha de auditoria (`reatribuido_de_id`)
+Helpers no código (`frontend/lib/permissions.ts`): `canWrite`, `canManageUsers`, `canManageColaboradores`, `canForcarImportacao`, `isAdmin`, `roleLabels`, `assignableRoles` (não é possível atribuir `ADMIN` pela tela).
 
-**Trigger automático pós-inserção:**
-Ao inserir um medidor `PENDENTE`, o trigger `trg_auto_vincular_serial` verifica se já existe algum serviço `AGUARDANDO_VINCULACAO` com aquele serial e vincula automaticamente.
+### Como isso é imposto
+
+- **RLS** em todas as tabelas, usando a função `get_user_role()` (`SECURITY DEFINER`, lê `profiles` por `auth.uid()`).
+- Leitura liberada para qualquer `authenticated`; escrita restrita por role.
+- Algumas RPCs são `SECURITY DEFINER` (ignoram RLS) e por isso **checam a role explicitamente lá dentro** — ex.: `importar_servicos_forcado`, `garantir_servico_report`, `resolver_recuperacao_pendente`. Esconder botão na tela nunca é suficiente.
+- O `DESPACHANTE` só enxerga a Lista de Medidores; o layout redireciona para `/dashboard` se ele tentar outra rota.
+
+> Histórico importante: existiam policies `allow_all_*` (nunca versionadas) que liberavam leitura/escrita total a `public`, inclusive sem login, nas 4 tabelas operacionais. Foram removidas na migration `019`. Se algo parecer "permissivo demais" no banco, conferir `pg_policies` antes de assumir.
 
 ---
 
-### 5.3 Importação de Planilhas (`/importacao`)
+## 6. Modelo de dados completo
 
-Duas abas independentes:
+### Enums e domínios
 
-#### Aba 1 — Relatório GDIS
-
-Importa os serviços executados pelo SAP/GDIS.
-
-**Suporta:** `.xlsx` e `.csv` (colunas lidas por aliases PT/EN e por índice posicional para resistir a encoding windows-1252 em cabeçalhos).
-
-**Campos mapeados:** número do serviço, matrícula do técnico, data de término, código do serviço, tipo.
-
-**Execução:** `importServicos()` → upsert em `servicos_report` pelo número de serviço. Após importar, redireciona para a tela de conferência.
-
-#### Aba 2 — Planilha de Atribuições (Juliana)
-
-Exportação semanal do SAP com o estado atual de todos os medidores em campo. Usada para **sincronizar** o banco com a realidade.
-
-**Colunas lidas por índice posicional** (evita problemas de encoding):
-- Índice 1: Material SAP
-- Índice 2: Serial
-- Índice 10: Recebedor (matrícula do técnico)
-- Índice 11: Data de Atribuição
-
-**Análise antes de executar — 3 categorias:**
-
-| Categoria | Condição | Ação |
+| Nome | Valores | Observação |
 |---|---|---|
-| **Devolvidos** | Serial existe no banco mas não está na planilha (Recebedor vazio) | Deletar do `medidores_list` |
-| **Reatribuições** | Serial existe mas com matrícula diferente | Atualizar matrícula/data/material |
-| **Divergências** | Serial existe mas material ou data diferem | Atualizar campos divergentes |
+| `role_type` (enum) | `ADMIN`, `GESTOR`, `SUPERVISOR`, `ALMOXARIFADO`, `DESPACHANTE` | `ALMOXARIFE` foi renomeado para `ALMOXARIFADO` |
+| `status_medidor` (enum) | `PENDENTE`, `CONCLUIDO`, `REATRIBUIDO` | `REATRIBUIDO` é linha histórica, some da view |
+| `status_conferencia` | `PENDENTE`, `CONFERIDO`, `AGUARDANDO_VINCULACAO` | **Não é enum** — é `TEXT` com CHECK constraint em `servicos_report` |
 
-O operador visualiza as 3 listas antes de executar e confirma com um clique.
+### `profiles` — usuários do sistema
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | UUID PK | FK → `auth.users(id)` ON DELETE CASCADE |
+| `name` | TEXT NOT NULL | |
+| `role` | `role_type` NOT NULL | default `ALMOXARIFADO` |
+| `is_active` | BOOLEAN NOT NULL | default `true` |
+| `created_at` / `updated_at` | TIMESTAMPTZ | `updated_at` por trigger |
+
+### `tipos_de_medidores` — catálogo de equipamentos
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `cod_sap` | TEXT PK | código do material no SAP |
+| `tipo` | TEXT NOT NULL | descrição; `ILIKE 'MEDID%'` distingue medidor de TC/chave |
+| `ligacao` | TEXT NOT NULL | CHECK `('direto','indireto')` |
+| `valor` | NUMERIC(10,2) NOT NULL | **fonte de toda métrica em R$** |
+| `ativo` | BOOLEAN NOT NULL | default `true` |
+| `created_at` / `updated_at` | TIMESTAMPTZ | |
+
+### `colaboradores` — técnicos de campo
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `matricula` | TEXT PK | normalizada para **minúsculo** por trigger |
+| `nome` | TEXT NOT NULL | |
+| `supervisor` | TEXT | texto livre |
+| `gc` | TEXT | Gerência de Campo |
+| `go` | TEXT | Gerência Operacional |
+| `ativo` | BOOLEAN NOT NULL | default `true` |
+| `created_at` / `updated_at` | TIMESTAMPTZ | |
+
+> Não pode ser excluído se tiver medidores/serviços vinculados (FK 23503) — a UI orienta a marcar como inativo.
+
+### `medidores_list` — tabela principal
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | UUID PK | `gen_random_uuid()` |
+| `data` | DATE NOT NULL | data de atribuição (entrega ao técnico) |
+| `material_sap` | TEXT NOT NULL | FK → `tipos_de_medidores(cod_sap)` |
+| `serial` | TEXT NOT NULL | |
+| `matricula` | TEXT NOT NULL | FK → `colaboradores(matricula)`; normalizada |
+| `servico_gdis` | TEXT | FK → `servicos_report(servico)`, sem ON DELETE |
+| `status` | `status_medidor` NOT NULL | default `PENDENTE` |
+| `data_conclusao` | DATE | |
+| `servico_campo` | TEXT | |
+| `equipe` | TEXT | |
+| `reatribuido_de_id` | UUID | FK → `medidores_list(id)` — trilha de auditoria |
+| `reatribuido_para_id` | UUID | FK → `medidores_list(id)` |
+| `data_reatribuicao` | TIMESTAMPTZ | |
+| `atualizacao` | TIMESTAMPTZ NOT NULL | atualizada por trigger em todo UPDATE |
+| `created_at` | TIMESTAMPTZ NOT NULL | |
+
+**Índice crítico:** `idx_medidor_serial_pendente_unico` — `UNIQUE (serial) WHERE status = 'PENDENTE'`. Ou seja: **um serial só pode ter uma linha PENDENTE no sistema inteiro**. É o que dispara o fluxo de reatribuição.
+
+### `servicos_report` — serviços importados do GDIS
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `servico` | TEXT PK | número do serviço GDIS |
+| `matricula` | TEXT | FK → `colaboradores`; NULL quando terceiro/forçado |
+| `termino` | TIMESTAMPTZ NOT NULL | data de término do serviço |
+| `cod_serv` | TEXT | |
+| `tipo_serv` | TEXT | |
+| `imported_at` | TIMESTAMPTZ NOT NULL | |
+| `status_conferencia` | TEXT NOT NULL | default `PENDENTE`; CHECK dos 3 valores |
+| `medidor_serial_vinculado` | TEXT | preenchido ao conferir |
+| `conferido_em` | TIMESTAMPTZ | |
+| `serial_buscado` | TEXT | serial informado quando o medidor ainda não existia |
+
+Índice parcial `idx_servicos_conferencia_serial` em `(status_conferencia, serial_buscado)` para os `AGUARDANDO_VINCULACAO`.
+
+### `medidor_logs` — linha do tempo por medidor
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | UUID PK | |
+| `medidor_id` | UUID NOT NULL | FK → `medidores_list(id)` **ON DELETE CASCADE** |
+| `evento` | TEXT NOT NULL | `CADASTRADO`, `CONCLUIDO`, `SERVICO_VINCULADO`, `SERVICO_REMOVIDO`, `REABERTO`, `REATRIBUIDO`, `EDITADO` |
+| `descricao` | TEXT | |
+| `created_at` | TIMESTAMPTZ NOT NULL | |
+
+Leitura e inserção liberadas a qualquer `authenticated`. Preenchida pelo trigger `trg_log_medidor_evento`.
+
+### `conferencia_45dias_ocultos` — itens escondidos da conferência +45 dias
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `medidor_id` | UUID PK | FK → `medidores_list` CASCADE |
+| `ocultado_por` | UUID | FK → `profiles`, default `auth.uid()` |
+| `ocultado_em` | TIMESTAMPTZ NOT NULL | |
+
+Ocultar é **coletivo e persistente**: todo mundo vê a mesma lista.
+
+### `duplicidade_revisados` — log de grupos já revisados
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `tipo` | TEXT | PK composta; CHECK `('SERVICO','SERIAL')` |
+| `chave` | TEXT | PK composta; o serviço ou o serial que define o grupo |
+| `itens_conflitantes` | JSONB NOT NULL | snapshot do momento da revisão |
+| `revisado_por` | UUID | FK → `profiles`, default `auth.uid()` |
+| `revisado_em` | TIMESTAMPTZ NOT NULL | |
+
+### `medidor_recuperacao_pendente` — resíduo do incidente de 2026-09-16 (só ADMIN)
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `medidor_id` | UUID PK | FK → `medidores_list` CASCADE |
+| `tipo` | TEXT NOT NULL | CHECK `('SEM_SERIAL','AMBIGUO')` |
+| `candidatos_serial` | JSONB | candidatos encontrados no cruzamento de fontes |
+| `criado_em` | TIMESTAMPTZ NOT NULL | |
+
+### `automacao_gdis_log` — histórico das rodadas da Automação GDIS (só ADMIN)
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | UUID PK | |
+| `execucao_id` | UUID NOT NULL | identifica a rodada |
+| `chave_item` | TEXT NOT NULL | `rec:<medidorId>` ou `conf:<servico>` |
+| `origem` | TEXT NOT NULL | CHECK `('RECUPERACAO','CONFERENCIA')` |
+| `medidor_id` | UUID | **sem FK** e opcional (item de conferência ainda não tem medidor) |
+| `servico_gdis`, `matricula`, `colaborador`, `tipo_equipamento` | TEXT | desnormalizados de propósito |
+| `serial_anterior`, `serial_encontrado` | TEXT | |
+| `resultado` | TEXT NOT NULL | `ENCONTRADO`, `GRAVADO`, `CONFLITO`, `VAZIO`, `ERRO`, `AGUARDANDO` |
+| `observacao` | TEXT | |
+| `modo` | TEXT NOT NULL | `AUTOMATICO` \| `MANUAL` |
+| `executado_por` | UUID | FK → `profiles`, default `auth.uid()` |
+| `criado_em` / `atualizado_em` | TIMESTAMPTZ | |
+
+`UNIQUE (execucao_id, chave_item)` — a linha **evolui** (upsert) de `ENCONTRADO` para `GRAVADO`/`CONFLITO`/`AGUARDANDO` em vez de virar duas.
+
+### Tabelas de backup
+
+`backup_medidores_2025_excluidos` e `backup_medidor_logs_2025_excluidos` (migration `037`) guardam o que foi apagado na limpeza de medidores de 2025 cancelados.
 
 ---
 
-### 5.4 Conferência de Serviços (`/conferencia`)
+## 7. View, triggers e automatismos do banco
 
-Tela onde o operador vincula cada serviço GDIS importado ao serial do medidor físico instalado.
+### `vw_medidores_completo`
 
-#### Seção 1 — Pendentes de Conferência
+Junta `medidores_list` + `colaboradores` + `tipos_de_medidores`, **excluindo `status = 'REATRIBUIDO'`**. Colunas expostas com nomes em PT (atenção: acentos e espaços — no PostgREST precisam de aspas):
 
-Lista de serviços com `status_conferencia = 'PENDENTE'`. Para cada um:
-- Botão **Copiar** — copia o número do serviço para a área de transferência e foca o campo de serial
-- Campo de serial + botão **Vincular** (ou Enter) — chama `vincularServicoMedidor`:
-  - Medidor encontrado (`PENDENTE` no banco) → vincula, seta `status = CONCLUIDO` e `data_conclusao` na migration 010
-  - Medidor não encontrado → serviço vai para `AGUARDANDO_VINCULACAO` com o serial informado
-
-#### Seção 2 — Aguardando Vinculação
-
-Lista de serviços com `status_conferencia = 'AGUARDANDO_VINCULACAO'` (serial informado mas medidor ainda não cadastrado).
-
-Cada linha tem dois botões de ação:
-
-| Botão | Comportamento |
+| Coluna da view | Origem |
 |---|---|
-| **✏️ Corrigir** | Abre input inline pré-preenchido com o serial atual. Ao confirmar, tenta vincular novamente: se medidor existir vincula direto; se não, atualiza `serial_buscado` e permanece aguardando |
-| **↩️ Reverter** | Volta o serviço para `status_conferencia = 'PENDENTE'` (limpa `serial_buscado`); o serviço retorna à fila de conferência para ser tratado do zero |
+| `id` | `ml.id` |
+| `"Data"` | data de atribuição |
+| `"Material SAP"` | `ml.material_sap` |
+| `"Serial"` | `ml.serial` |
+| `"MATRICULA"` | `ml.matricula` |
+| `"COLABORADOR"` | `c.nome` |
+| `"SUPERVISOR"` | `c.supervisor` |
+| `"SERVIÇO GDIS"` | `ml.servico_gdis` |
+| `"Concluído/Pendente"` | `ml.status` |
+| `"VALOR"` | `t.valor` |
+| `"EQUIPAMENTO"` | `t.tipo` |
+| `"DIAS DE ATRIBUIÇÃO"` | `COALESCE(data_conclusao, CURRENT_DATE) - data` |
+| `"Data da conclusão"` | `ml.data_conclusao` |
+| `"ATUALIZAÇÃO"` | `ml.atualizacao` |
+| `"SERVIÇO CAMPO"`, `"EQUIPE"` | campos livres |
+| `reatribuido_de_id`, `reatribuido_para_id`, `data_reatribuicao` | auditoria |
 
-**Botão "Verificar vinculações"** (cabeçalho) — chama RPC `verificar_vinculacoes_pendentes` que tenta resolver todos os `AGUARDANDO_VINCULACAO` em lote contra os medidores `PENDENTE` cadastrados.
+### Triggers
 
-**Trigger automático:** ao lançar um novo medidor, o trigger `trg_auto_vincular_serial` verifica automaticamente se existe algum serviço `AGUARDANDO_VINCULACAO` com aquele serial e vincula sem precisar de ação manual.
+| Trigger | Tabela | O que faz |
+|---|---|---|
+| `on_auth_user_created` → `handle_new_user()` | `auth.users` | cria a linha em `profiles` (nome do metadata ou parte do e-mail; role do metadata ou `ALMOXARIFADO`) |
+| `trg_normalize_matricula_*` → `normalize_matricula()` | `colaboradores`, `servicos_report`, `medidores_list` | força `lower(matricula)` em INSERT/UPDATE |
+| `update_*_updated_at` | `profiles`, `tipos_de_medidores`, `colaboradores` | `updated_at = now()` |
+| `trg_touch_atualizacao` | `medidores_list` | `atualizacao = now()` em UPDATE |
+| `trg_auto_vincular_serial` | `medidores_list` AFTER INSERT | se o novo medidor é `PENDENTE` e existe serviço `AGUARDANDO_VINCULACAO` com aquele `serial_buscado`, vincula sozinho (mais antigo primeiro) |
+| `trg_log_medidor_evento` → `fn_log_medidor_evento()` | `medidores_list` | grava a linha do tempo em `medidor_logs` |
+
+> **Regra de ouro para qualquer função `SECURITY DEFINER` nova:** declarar `SET search_path = public`. Uma função `SECURITY DEFINER` sem isso herda o `search_path` de quem chama — foi exatamente o bug que impedia a criação de qualquer usuário (o GoTrue chama como `supabase_auth_admin`, cujo `search_path` é só `auth`).
 
 ---
 
-### 5.5 Conciliação Automática
+## 8. Catálogo de RPCs
 
-RPC `match_medidores()` cruza medidores `PENDENTE` com serviços `CONCLUIDO` por matrícula e intervalo de data:
-- **Match exato** → atualiza `medidores_list` com o `servico_gdis` + `status = CONCLUIDO`
-- **Ambiguidade** → sinaliza para resolução manual
-- Pode ser disparada manualmente via `runMatchMedidores()` ou eventualmente por um job
+Todas chamadas via `POST /rest/v1/rpc/<nome>`. Em Kotlin: `postgrest.rpc("nome", buildJsonObject { ... })`.
+
+### Vinculação e conferência
+
+| RPC | Parâmetros | Retorno | Notas |
+|---|---|---|---|
+| `vincular_servico_medidor` | `p_servico_id TEXT`, `p_serial TEXT` | JSONB `{ ok, aguardando?, serial?, matricula?, nome?, error? }` | Se achou medidor `PENDENTE` com o serial → vincula e marca `CONCLUIDO`. Se não achou → serviço vai para `AGUARDANDO_VINCULACAO` guardando `serial_buscado`. |
+| `_tentar_vincular_serial` | `p_servico_id`, `p_serial` | BOOLEAN | Interna, usada pela RPC acima e pelo trigger. |
+| `verificar_vinculacoes_pendentes` | — | INT | Tenta resolver em lote todos os `AGUARDANDO_VINCULACAO`; devolve quantos vinculou. |
+| `garantir_servico_report` | `p_servico TEXT`, `p_serial TEXT = NULL` | VOID | Cria o serviço se não existir e o marca `CONFERIDO`; limpa `serial_buscado`. Permite vincular um GDIS que ainda não foi importado. Checa role. |
+| `match_medidores` | — | TABLE(`medidor_id`, `candidatos`) | Conciliação automática por matrícula + intervalo de data. Ambiguidade volta para resolução manual. |
+
+### Anti-duplicidade e reatribuição
+
+| RPC | Parâmetros | Retorno | Notas |
+|---|---|---|---|
+| `verificar_medidor_atribuido` | `p_serial TEXT` | TABLE(`medidor_list_id`, `matricula_atual`, `nome_colaborador`, `data_atribuicao`, `dias_atribuido`) | Vazio = serial livre. |
+| `reatribuir_medidor` | `p_serial`, `p_nova_matricula`, `p_sap_material_id` | UUID (novo medidor) | Marca o registro anterior como `REATRIBUIDO` e cria o novo, ligando por `reatribuido_de_id`. |
+| `get_duplicidade_medidores` | — | JSONB[] | Grupos ativos, `tipo` = `SERVICO` (um serviço com mais de um serial) ou `SERIAL` (mesmo serial em mais de uma linha). Ignora TC/chave e linhas `REATRIBUIDO`. |
+| `get_duplicidade_revisados` | — | JSONB[] | Log do que já foi revisado. |
+| `marcar_duplicidade_revisado` | `p_tipo`, `p_chave` | VOID | Grava o snapshot dos itens em conflito. |
+| `excluir_medidor_duplicado` | `p_id UUID` | INT (linhas restantes) | **Destrutivo**: leva os `medidor_logs` junto por CASCADE. Recusa se for a única linha daquele serial. |
+
+### Métricas e listas
+
+| RPC | Parâmetros | Retorno |
+|---|---|---|
+| `get_medidores_metrics` | `p_matriculas TEXT[]`, `p_status TEXT[]`, `p_servico_gdis TEXT`, `p_serial TEXT`, `p_atribuicao_inicio DATE`, `p_atribuicao_fim DATE`, `p_conclusao_inicio DATE`, `p_conclusao_fim DATE`, `p_material_sap_codes TEXT[]`, `p_supervisores TEXT[]`, `p_dias_min INT` (todos default NULL) | JSON `{ metrics: { total, pendentes, concluidos, valor_pendente, valor_concluido, valor_total, media_dias_pendentes, acima_45 }, ranking: [{ matricula, nome, qtd_pendente, valor_pendente }] }` |
+| `get_conferencia_45dias` | `p_page INT=1`, `p_page_size INT=100`, `p_asc BOOLEAN=false`, `p_dias INT=45`, `p_serial TEXT=NULL` | JSONB `{ data: [...], total }` — já exclui os ocultados |
+| `get_conferencia_45dias_ocultos` | `p_dias INT=45` | JSONB[] com `ocultadoPor`, `ocultadoEm` |
+| `get_ranking_colaboradores` | filtros similares | JSON — existe no banco, **sem call site no frontend atual** |
+
+### Importações
+
+| RPC | Parâmetros | Retorno | Notas |
+|---|---|---|---|
+| `importar_planilha_pc` | `p_itens JSONB` (lotes de 500) | JSONB `{ servicos_criados, medidores_atualizados, servicos_conferidos }` | Cria os serviços faltantes antes de vincular, satisfazendo a FK. |
+| `importar_servicos_forcado` | `p_itens JSONB` | INT (importados) | Importa ignorando matrícula não cadastrada (entra sem matrícula). Só `ADMIN`/`GESTOR`/`SUPERVISOR` — checado dentro da função. |
+
+### Recuperação e automação (só ADMIN)
+
+| RPC | Parâmetros | Retorno |
+|---|---|---|
+| `get_recuperacao_pendente` | — | JSONB[] `{ medidorId, tipo, candidatosSerial, serialAtual, matricula, colaborador, materialSap, tipoEquipamento, servicoGdis, status, data, criadoEm }` |
+| `resolver_recuperacao_pendente` | `p_medidor_id UUID`, `p_serial_correto TEXT` | BOOLEAN (`true` = o serial já existia em outra linha; grava mesmo assim) |
+| `get_automacao_execucoes` | — | JSONB[] com totais por rodada |
+| `get_automacao_execucao_itens` | `p_execucao_id UUID` | JSONB[] com as linhas da rodada |
+| `get_user_role` | — | `role_type` — base de toda RLS |
 
 ---
 
-## 6. lib/api.ts — Funções Públicas
+## 9. Telas e fluxos
 
-| Função | Descrição |
+Rotas atuais do web:
+
+```
+/login                                   — autenticação + "Primeiro acesso" + "Esqueci minha senha"
+/register                                — cadastro
+/reset-senha                             — define senha definitiva (3 fluxos convergem aqui)
+
+/(dashboard)/layout.tsx                  — sidebar + proteção de rota por role + trocar senha
+
+/dashboard                               — ★ Lista de Medidores (principal)
+/dashboard/lancamento                    — lançamento manual de medidores
+/dashboard/importacao                    — importação de planilhas (abas)
+/dashboard/conferencia                   — conferência de serviços GDIS
+/dashboard/conferencia-45dias            — pendências críticas (+45 dias)
+/dashboard/duplicidade                   — grupos duplicados (serviço ou serial)
+/dashboard/colaboradores                 — CRUD de colaboradores (supervisor+)
+/dashboard/usuarios                      — CRUD de usuários do sistema (supervisor+)
+/dashboard/recuperacao-incidente         — resolução de seriais reconstruídos (ADMIN)
+/dashboard/automacao-gdis                — robô de consulta ao GDIS (ADMIN, desktop)
+```
+
+### 9.1 Lista de Medidores (`/dashboard`) — tela principal
+
+**Dashboard de métricas** (tudo vem de `get_medidores_metrics`, uma chamada só):
+- KPI cards: Valor Pendente (R$) · Valor Concluído (R$) · Valor Total (R$) · +45 Dias Pendente (alerta vermelho) · Média de Dias.
+- Donut "Situação Geral": pendentes (âmbar) × concluídos (verde), total absoluto no centro.
+- Top 10 — Valor Pendente: ranking de técnicos, barras proporcionais, posições 1–3 destacadas. **Clicável e multiselect** — clicar filtra a tabela por aquele técnico e acumula.
+
+**Filtros** (todos combinam; qualquer mudança recarrega tabela + métricas):
+
+| Filtro | Tipo |
 |---|---|
-| `login / logout / getSession / getProfile` | Auth Supabase |
-| `getTiposMedidores(apenasAtivos?)` | Catálogo de equipamentos; `false` retorna todos incluindo inativos |
-| `getColaboradores(search?)` | Lista colaboradores, com filtro opcional por nome/matrícula |
-| `getSupervisores()` | Lista de supervisores únicos |
-| `getMedidoresCompleto(filters)` | Dashboard: filtros + ordenação + paginação + count exato |
-| `getMedidoresMetrics(filters?)` | Métricas agregadas + ranking top 10 (paginação completa client-side) |
-| `createMedidor / createMedidores` | Lançamento simples e em lote |
-| `updateMedidor(id, payload)` | Edição completa; aceita `servico_gdis: null` e `data_conclusao: null` para limpar os campos |
-| `deleteMedidor(id)` | Exclusão |
-| `getMedidorLogs(medidorId)` | Retorna log de atividades de um medidor ordenado cronologicamente |
-| `importServicos(rows)` | Upsert em `servicos_report` |
-| `getServicosConferencia(page)` | Lista serviços `PENDENTE` na conferência |
-| `getServicosAguardandoVinculacao(page)` | Lista serviços `AGUARDANDO_VINCULACAO` |
-| `verificarVinculacoesPendentes()` | Tenta resolver aguardando em lote; retorna contagem de vinculados |
-| `reverterServicoPendente(servicoId)` | Reverte `status_conferencia` para `PENDENTE` e limpa `serial_buscado` |
-| `vincularServicoMedidor(servicoId, serial)` | Vincula via RPC; retorna `{ ok, aguardando, serial, matricula, nome }` |
-| `verificarMedidorAtribuido(serial)` | Checa conflito de serial antes de lançar |
-| `reatribuirMedidor(params)` | Executa reatribuição transacional via RPC |
-| `getMedidorReatribuicaoInfo(id)` | Histórico de reatribuição de um medidor |
-| `runMatchMedidores()` | Dispara conciliação automática |
-| `getMedidoresParaSync()` | Retorna medidores para comparação com planilha Juliana |
-| `syncAtribuicoes(params)` | Executa devoluções + reatribuições + divergências da planilha Juliana |
+| Colaborador | multiselect com busca por nome **ou** matrícula |
+| Supervisor / GC / GO | multiselect (GC e GO resolvem para matrículas antes de consultar) |
+| Serial | texto, busca parcial, múltiplos separados por vírgula |
+| Serviço GDIS | texto, busca parcial |
+| Status | `PENDENTE` / `CONCLUIDO` |
+| Material | categoria do equipamento |
+| Data Atribuição / Data Conclusão | intervalos |
+
+**Tabela:** Data Atrib. · Serial · Colaborador · Supervisor · Serviço GDIS · Status · Dias · Conclusão · Ações. Paginação de 50, ordenação multi-coluna configurável, exportação CSV que respeita todos os filtros (UTF-8 com BOM).
+
+**Ações por linha:** ver/editar (modal completo com log de atividades), vincular serviço (só em `PENDENTE` — já marca `CONCLUIDO`), excluir (confirmação + exclusão otimista). Somem inteiras para quem não tem `canWrite`.
+
+**Modal de edição:** campos editáveis (serial, material SAP, serviço GDIS, data de atribuição, status, data de conclusão, colaborador) + painel read-only que reage às mudanças (supervisor, equipamento, dias, valor) + linha do tempo de `medidor_logs`.
+
+| Evento no log | Quando |
+|---|---|
+| Cadastrado | INSERT |
+| Concluído | `PENDENTE → CONCLUIDO` |
+| Serviço vinculado | `servico_gdis` preenchido sem mudar status |
+| Serviço removido | `servico_gdis` → NULL |
+| Reaberto | `CONCLUIDO → PENDENTE` |
+| Reatribuído | mudança de `matricula` |
+| Editado | mudança de `material_sap` |
+
+### 9.2 Lançamento (`/dashboard/lancamento`)
+
+Registra a entrega física. Formulário: colaborador (autocomplete nome/matrícula, seleção com Enter) · data (default hoje) · material SAP (busca por código ou descrição) · seriais (vários, separados por Enter ou vírgula).
+
+Validação em tempo real por serial via `verificar_medidor_atribuido`: **disponível** ou **conflito**. No conflito, modal mostra técnico atual, data original e supervisor; confirmando, `reatribuir_medidor` fecha a linha anterior como `REATRIBUIDO` e cria a nova.
+
+Após o INSERT, o trigger tenta vincular automaticamente qualquer serviço que já estivesse esperando por aquele serial.
+
+### 9.3 Importação (`/dashboard/importacao`)
+
+Lê `.xlsx` e `.csv` no browser. Abas:
+
+- **Relatório GDIS** — upsert em `servicos_report` por número de serviço. Colunas lidas por aliases PT/EN **e por índice posicional** (resiste a encoding windows-1252). Matrícula iniciada em `C` é de terceiro: não bloqueia e não é gravada. Se sobrar matrícula desconhecida, a importação **não roda** e a tela lista quem falta; supervisor+ pode "forçar" via `importar_servicos_forcado`.
+- **Planilha de Atribuições (Juliana)** — colunas por índice: 1 = Material SAP, 2 = Serial, 10 = Recebedor (matrícula), 11 = Data. Antes de executar, mostra 3 listas: **Devolvidos** (existe no banco, sumiu da planilha → deletar), **Reatribuições** (matrícula diferente → atualizar), **Divergências** (material/data diferentes → atualizar).
+- **Planilha PC** — vinculação em lote via `importar_planilha_pc`, em lotes de 500 com progresso.
+
+### 9.4 Conferência (`/dashboard/conferencia`)
+
+- **Pendentes de conferência** (`status_conferencia = 'PENDENTE'`): botão Copiar (copia o nº do serviço e foca o campo) + campo de serial + Vincular (ou Enter) → `vincular_servico_medidor`.
+- **Aguardando vinculação**: ✏️ Corrigir (input inline, tenta vincular de novo) e ↩️ Reverter (volta para `PENDENTE`, limpa `serial_buscado`). Exportação em Excel disponível.
+- Botão **Verificar vinculações** no cabeçalho roda o lote.
+
+### 9.5 Conferência +45 dias (`/dashboard/conferencia-45dias`)
+
+Lista paginada (`get_conferencia_45dias`) dos medidores `PENDENTE` com mais de N dias (default 45), ordenável por dias e com busca por serial. Cada linha permite digitar o serviço GDIS e vincular direto (`vincularServicoGdisMedidor` → marca `CONCLUIDO` com `data_conclusao` = hoje) ou **ocultar** o item (persistente e compartilhado, reversível na seção de ocultados).
+
+### 9.6 Duplicidade (`/dashboard/duplicidade`)
+
+Dois critérios, cada grupo etiquetado:
+- **SERVICO** — um serviço GDIS puxou mais de um serial (âmbar).
+- **SERIAL** — o mesmo serial em mais de uma linha, duplicata literal ou vinculado a dois serviços (violeta).
+
+Ações: **Desvincular** (limpa `servico_gdis`, volta para `PENDENTE` — resolve vínculo errado, não linha sobrando), **Excluir linha** (`excluir_medidor_duplicado`, destrutivo), **Marcar revisado** / **Reverter revisão**.
+
+### 9.7 Gestão de Colaboradores e de Usuários
+
+- **Colaboradores** (supervisor+): CRUD com busca, filtros por supervisor/GC/GO, paginação de 25. Exclusão bloqueada quando há medidores vinculados — a tela mostra a contagem e orienta a inativar.
+- **Usuários** (supervisor+): cria com senha padrão, edita nome/e-mail/papel/status, dispara link de redefinição de senha, exclui. Passa pelas rotas `/api/users`.
+
+### 9.8 Recuperação de Dados (ADMIN)
+
+Resíduo do incidente de perda de dados de **2026-09-16**: medidores reconstruídos cujo serial não pôde ser confirmado (`SEM_SERIAL`) ou teve mais de um candidato (`AMBIGUO`). A tela mostra os candidatos e grava o serial correto via `resolver_recuperacao_pendente` (avisa se o serial já existe em outra linha, mas grava).
+
+### 9.9 Automação GDIS (ADMIN, **desktop-only**)
+
+Robô que descobre o serial instalado consultando o GDIS. Não funciona em celular — depende de um **conector local**:
+
+- `conector/conector.js`: Node + Express + Playwright (msedge), escuta em `http://localhost:3334`, acessa o GDIS em `http://192.168.122.110/contratadaweb/` (rede interna), com pausa de 1,2 s entre consultas.
+- Endpoints: `GET /ping`, `GET /status-stream` (SSE), `POST /iniciar-sessao` (`{cnpj, inscEstadual}`), `POST /continuar-apos-captcha`, `POST /buscar-seriais`, `POST /cancelar`.
+- Fluxo: abre o navegador → usuário resolve o captcha → o robô percorre as duas filas (**Recuperação** e **Conferência**), lê o serial de cada serviço e, no modo automático, grava.
+- Cada rodada tem um `execucao_id` e persiste linha a linha em `automacao_gdis_log` (um lote de 3 mil leva ~2 h e a aba pode morrer no meio). Relatório CSV por rodada.
 
 ---
 
-## 7. Qualidade de Dados
+## 10. Regras de negócio
 
-### Problemas históricos já corrigidos
-
-- **Matrículas com espaço/`\xa0` no final** (`e253433 `) — 6 colaboradores tinham duplicatas por espaço; medidores migrados para matrícula limpa, duplicatas excluídas
-- **Case inconsistente** — `go = 'amarildo'` / `gc = 'breno'` / `supervisor = 'kesia'` normalizados para Title Case
-- **Supervisor Aecio** — removido dos vínculos (`supervisor = NULL`) em todos os colaboradores
-- **Nome com case inconsistente** — `'Clerio Goncalves dos Santos'` → `'Clerio Goncalves Dos Santos'`
-
----
-
-## 8. Regras de Negócio Relevantes
-
-- Só pode existir **um serial `PENDENTE`** por vez (índice único parcial)
-- Medidor `CONCLUIDO` pode ter o mesmo serial lançado novamente (para novo ciclo)
-- Um medidor `REATRIBUIDO` mantém trilha: `reatribuido_de_id` + `data_reatribuicao`
-- Valores financeiros vêm de `tipos_de_medidores.valor` (não são digitados no lançamento)
-- Coluna `DIAS DE ATRIBUIÇÃO` é calculada pela view: `COALESCE(data_conclusao, CURRENT_DATE) - data`
-- Métrica "+45 dias" = medidores `PENDENTE` com mais de 45 dias sem conclusão
-- **Vincular um serviço GDIS a um medidor sempre seta `status = CONCLUIDO`** — seja via conferência, via modal de edição, ou via botão inline na lista
-- Campo `servico_gdis` vazio ao salvar envia `null` explícito ao banco (não `undefined`) para garantir que o campo seja limpo
+- **Um serial só pode ter uma linha `PENDENTE`** (índice único parcial). Segundo lançamento do mesmo serial = conflito → reatribuição.
+- Medidor `CONCLUIDO` pode ter o mesmo serial lançado de novo (novo ciclo).
+- `REATRIBUIDO` é linha histórica: fica no banco com `reatribuido_de_id`/`data_reatribuicao`, mas **não aparece na view** nem nas métricas nem na duplicidade.
+- **Vincular um serviço GDIS sempre marca `CONCLUIDO`** — por conferência, por modal de edição, por botão inline na lista ou pela conferência +45 dias. `data_conclusao` recebe hoje se estiver vazia.
+- `servico_gdis` vazio ao salvar precisa ir como `null` explícito (não `undefined`), senão o campo não é limpo.
+- Vincular um serviço que ainda não foi importado é permitido: `garantir_servico_report` cria a linha como `CONFERIDO` antes do UPDATE, satisfazendo a FK.
+- Valores em R$ **nunca são digitados** — vêm sempre de `tipos_de_medidores.valor`.
+- `DIAS DE ATRIBUIÇÃO` = `COALESCE(data_conclusao, CURRENT_DATE) - data`.
+- "+45 dias" = `PENDENTE` com mais de 45 dias sem conclusão. É a métrica crítica do negócio.
+- Matrícula é sempre minúscula no banco; matrícula iniciada em `C` é terceiro e nunca é cadastrada.
+- Duplicidade ignora TC e chave de aferição (`tipos_de_medidores.tipo NOT ILIKE 'MEDID%'`).
+- Colaborador com medidores/serviços vinculados não pode ser excluído — inativar.
 
 ---
 
-## 9. Deploy
+## 11. Armadilhas conhecidas
+
+| Armadilha | O que acontece / como evitar |
+|---|---|
+| **Limite de 1.000 linhas do PostgREST** | Qualquer `select` sem paginação corta em 1.000. Todo carregamento completo no código pagina em blocos de 1.000 até esgotar (`getAllMedidoresCompleto`, `getMedidoresParaSync`, etc.). |
+| **Paginação sem `ORDER BY`** | Já causou bug real: métricas contavam linhas repetidas e omitia outras (2832 buscadas → 2479 únicas). Sempre ordenar ao paginar; melhor ainda, agregar no banco. |
+| **`PGRST103` (range não satisfatório)** | Quando a lista encolhe entre o carregamento e a troca de página, o PostgREST devolve erro em vez de página vazia. O código detecta e refaz na página 1. |
+| **FK `medidores_list.servico_gdis`** | Vincular serviço inexistente estoura `23503`. Usar `garantir_servico_report` antes. Excluir serviço já vinculado também estoura — checar antes. |
+| **Colunas com acento/espaço na view** | No PostgREST precisam de aspas: `"SERVIÇO GDIS"`, `"Concluído/Pendente"`, `"DIAS DE ATRIBUIÇÃO"`. |
+| **`SECURITY DEFINER` sem `search_path`** | Herda o `search_path` do chamador. Quebrou a criação de **todo** usuário novo (GoTrue chama como `supabase_auth_admin`, `search_path = auth`). Sempre `SET search_path = public`. |
+| **Datas DD/MM lidas como MM/DD** | Bug já corrigido na importação; qualquer novo parser de planilha precisa tratar isso. |
+| **Usuários órfãos em `auth.users`** | `admin@traceone.com`, `almox@traceone.com`, `gestor@traceone.com` (criados em 2026-07-28) não têm linha em `profiles`. Se forem usados, criar o profile à mão. |
+| **Migrations fora do git** | `.gitignore` tem `/supabase/migrations/` — novas migrations **não entram no repositório**. As já commitadas continuam versionadas. Os arquivos existem só localmente em `supabase/migrations/`. |
+| **Numeração das migrations** | O nome do arquivo e o cabeçalho interno divergem em um dígito a partir da 004 (ex.: `005_reatribuicao.sql` tem cabeçalho "004"). Confiar no nome do arquivo. |
+
+---
+
+## 12. Identidade visual
+
+Arquivos-fonte em **`docs/marca/`** (com `LEIA-ME.md`). Tokens em `frontend/app/traceone-tema.css`, importado logo após `@import "tailwindcss"` no `globals.css`.
+
+**Símbolo:** um "1" traçado como trilha de circuito — sai do anel vazio (medidor pendente) e termina no ponto azul cheio (medidor concluído). É a jornada do medidor em uma forma só.
+
+### Paleta (hex prontos para `Color(0xFF…)` no Compose)
+
+| Token | Hex | Uso |
+|---|---|---|
+| `tinta` | `#0F172A` | texto principal, logotipo, traço do símbolo |
+| `sinal` | `#2563EB` | ação principal, links, foco, ponto da marca |
+| `sinal-forte` | `#1D4ED8` | hover/pressed do botão principal |
+| `sinal-fundo` | `#EFF6FF` | item ativo de menu, linha selecionada |
+| `sinal-claro` | `#60A5FA` | ponto da marca sobre fundo escuro |
+| `noite` | `#070C1F` | login e sidebar |
+| `noite-alto` | `#0D1640` | topo do degradê |
+| `noite-baixo` | `#040810` | base do degradê |
+| `nevoa` | `#F8F9FA` | fundo das páginas |
+| `linha` | `#E2E8F0` | bordas e divisórias |
+| `aco` | `#64748B` | texto secundário |
+| `aco-claro` | `#94A3B8` | ícones inativos, placeholders (não usar em texto) |
+
+**Status (texto / fundo / marcador):**
+
+| Status | Texto | Fundo | Marcador | Forma do marcador |
+|---|---|---|---|---|
+| Pendente | `#B45309` | `#FFFBEB` | `#F59E0B` | anel vazio |
+| Revisão | `#6D28D9` | `#F5F3FF` | `#8B5CF6` | dois anéis lado a lado |
+| Concluído | `#047857` | `#ECFDF5` | `#10B981` | ponto cheio |
+| Erro | `#B91C1C` | `#FEF2F2` | `#EF4444` | anel com barra |
+
+> O status persistido é **binário** (`PENDENTE | CONCLUIDO`). `revisao` hoje só é usado no caso `AMBIGUO` da Recuperação de Dados; `erro` não tem call site.
+
+**Fontes:** Archivo (marca, títulos e interface, com eixo `wdth`) e Atkinson Hyperlegible Mono (`font-codigo`) para **serial, matrícula, serviço GDIS e código SAP** — números que precisam ser lidos sem ambiguidade. Ambas disponíveis no Google Fonts.
+
+**Cores ainda fora dos tokens:** navy de ação secundária `#1E3A5F`/`#2D5282`, borda da sidebar `#1E2942`, gradientes decorativos da tela de registro e as variáveis `--chart-1..5` do donut.
+
+---
+
+## 13. Guia para o app Android
+
+### Premissa
+
+O Android fala **direto com o Supabase**, com a mesma anon key e a mesma RLS. Não é preciso replicar regra de negócio: ela está nas RPCs. Regra prática — **se existe RPC, usar a RPC**; tabela direta só para leitura simples e para os UPDATEs que o web também faz direto.
+
+### O que muda no celular
+
+O TraceOne web é uma ferramenta de escritório. No celular, o valor está em **estar junto do medidor físico**:
+
+| Tela do web | No Android |
+|---|---|
+| Lista de Medidores | ✅ essencial — com filtros reduzidos e busca por serial em destaque |
+| Lançamento | ✅ **o maior ganho**: leitura do serial por câmera (código de barras / OCR) em vez de digitar |
+| Conferência | ✅ faz sentido (vincular serviço ao serial no campo) |
+| Conferência +45 dias | ✅ lista de cobrança, boa para o supervisor em campo |
+| Duplicidade | ⚠️ opcional, tela densa |
+| Colaboradores / Usuários | ⚠️ opcional, baixo uso móvel |
+| Importação de planilhas | ❌ não faz sentido no celular |
+| Automação GDIS | ❌ impossível: depende do conector local na rede interna |
+| Recuperação de Dados | ❌ tarefa pontual de ADMIN |
+
+### Escopo sugerido para a v1
+
+1. **Login** (e-mail/senha) + primeiro acesso + esqueci minha senha.
+2. **Meus medidores / Lista** com busca por serial e filtro por colaborador e status; KPIs resumidos via `get_medidores_metrics`.
+3. **Lançamento com scanner** de serial, validação de conflito via `verificar_medidor_atribuido` e reatribuição via `reatribuir_medidor`.
+4. **Vincular serviço**: scanner/digitação do serial + número GDIS → `vincular_servico_medidor`.
+5. **Detalhe do medidor** com a linha do tempo de `medidor_logs`.
+
+### Detalhes técnicos que o app precisa respeitar
+
+- **Paginar em blocos de até 1.000** e sempre com ordenação estável.
+- **Usar as RPCs de agregação** (`get_medidores_metrics`, `get_conferencia_45dias`) em vez de baixar a tabela — são uma linha de resposta contra 16 mil.
+- **Normalizar a matrícula para minúsculo** antes de enviar (o trigger faz, mas comparações locais quebram sem isso).
+- **Datas**: `data` e `data_conclusao` são `DATE` (`YYYY-MM-DD`, sem fuso). Não converter para instante — `LocalDate`, não `Instant`.
+- **Valores**: `NUMERIC(10,2)` → usar `BigDecimal`, nunca `Double`, e formatar em `pt-BR`.
+- **Esconder ações de escrita** para quem não tem `canWrite` (`DESPACHANTE`), mas lembrar que a proteção real é a RLS — a UI só evita o erro.
+- **Tratar `23503`** (FK) e **`PGRST103`** (range) com mensagens próprias, como o web faz.
+- **Offline**: o app pode cachear `colaboradores` e `tipos_de_medidores` (mudam pouco). Fila de lançamentos offline é possível, mas atenção — a checagem de serial duplicado só é confiável online, e o índice único parcial vai rejeitar no sync.
+- **Realtime** (opcional): `medidores_list` e `servicos_report` podem ser assinadas via Realtime para a lista se atualizar sozinha.
+
+### Modelos Kotlin de partida
+
+```kotlin
+@Serializable
+data class Medidor(
+    val id: String,
+    val data: String,                 // DATE YYYY-MM-DD
+    @SerialName("material_sap") val materialSap: String,
+    val serial: String,
+    val matricula: String,
+    @SerialName("servico_gdis") val servicoGdis: String? = null,
+    val status: String,               // PENDENTE | CONCLUIDO | REATRIBUIDO
+    @SerialName("data_conclusao") val dataConclusao: String? = null,
+)
+```
+
+Para a view, atenção aos nomes com acento e espaço:
+
+```kotlin
+@Serializable
+data class MedidorCompleto(
+    val id: String,
+    @SerialName("Data") val data: String,
+    @SerialName("Serial") val serial: String,
+    @SerialName("COLABORADOR") val colaborador: String,
+    @SerialName("SUPERVISOR") val supervisor: String? = null,
+    @SerialName("SERVIÇO GDIS") val servicoGdis: String? = null,
+    @SerialName("Concluído/Pendente") val status: String,
+    @SerialName("VALOR") val valor: Double,
+    @SerialName("DIAS DE ATRIBUIÇÃO") val dias: Int,
+)
+```
+
+### Referência da camada de dados do web
+
+`frontend/lib/api.ts` é o catálogo completo de operações já implementadas — vale ler como especificação antes de escrever o repositório Kotlin. Funções principais: `login`, `getProfile`, `getTiposMedidores`, `getColaboradores`, `getSupervisores`, `getMedidoresCompleto`, `getAllMedidoresCompleto`, `getMedidoresMetrics`, `createMedidor(es)`, `updateMedidor`, `deleteMedidor`, `getMedidorLogs`, `verificarMedidorAtribuido`, `reatribuirMedidor`, `getMedidorReatribuicaoInfo`, `importServicos`, `importServicosForcado`, `getServicosConferencia`, `getServicosAguardandoVinculacao`, `vincularServicoMedidor`, `vincularServicoGdisMedidor`, `verificarVinculacoesPendentes`, `reverterServicoPendente`, `deleteServicoReport`, `getMedidoresConferencia45Dias`, `getConferencia45DiasOcultos`, `ocultarMedidor45Dias`, `reverterOcultarMedidor45Dias`, `getDuplicidadeMedidores`, `marcarDuplicidadeRevisado`, `excluirMedidorDuplicado`, `desvincularDuplicidadeMedidor`, `getMedidoresParaSync`, `syncAtribuicoes`, `getMedidoresParaPC`, `importarPlanilhaPC`, `getRecuperacaoPendente`, `resolverRecuperacaoPendente`, `registrarAutomacaoLog`, `getAutomacaoExecucoes`, `getMedidoresAcima45Dias`, `changeOwnPassword`, `requestPasswordReset`, CRUD de usuários e colaboradores.
+
+---
+
+## 14. Ambiente, deploy e scripts
+
+### Estrutura do repositório
+
+```
+CONTEXTO_GERAL.md      este arquivo
+frontend/              app Next.js (Dockerfile aqui) + scripts .ts de manutenção
+supabase/migrations/   SQL (fora do git a partir da 021 — ver armadilhas)
+conector/              conector local Node+Playwright do GDIS
+docs/marca/            arquivos-fonte da identidade visual
+backend/               resíduo (src/users) — não é o backend ativo
+Importação/            planilhas de trabalho (não versionadas)
+backup/                dumps locais
+docker-compose.yml     serviço único na porta 3000
+```
+
+### Deploy
 
 ```bash
-# Build e reinício do container
 cd /c/APPWEB/traceone
 docker compose build --no-cache
 docker compose up -d
 ```
 
-O `Dockerfile` está em `frontend/`. O `docker-compose.yml` está na raiz do repositório.
+O build recebe `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY` como build args (precisam existir em tempo de build para o Next.js embutir). `SUPABASE_SERVICE_ROLE_KEY` entra só como variável de ambiente em runtime.
 
----
+### Migrations
 
-## 10. Próximos Passos
+Rodadas **à mão** pelo dono do projeto, a partir de `frontend/`:
 
-1. **Resolução de conflitos de match** — tela para ambiguidades do `match_medidores` (mais de 1 serviço por técnico no período)
-2. **Histórico completo de reatribuições** — expandir modal com trilha completa (não só a última)
-3. **Cron/job de limpeza** — limpar `servicos_report` antigos para manter performance
-4. **Autenticação por perfil** — diferenciar permissões entre operador e gestor
-5. **Notificações** — alertar gestores quando medidores ultrapassam 45 dias sem conclusão
-
----
-
-## 11. Hierarquia de Permissões (2026-08-06)
-
-### 11.1 O que foi implementado
-
-- `role_type` agora tem 5 valores: `ADMIN`, `GESTOR`, `SUPERVISOR`, `ALMOXARIFADO`, `DESPACHANTE` (migrations `016`–`017`). `ALMOXARIFE` foi renomeado para `ALMOXARIFADO` via `ALTER TYPE ... RENAME VALUE`.
-- RLS: escrita em `tipos_de_medidores`, `colaboradores`, `medidores_list`, `servicos_report` liberada para `ADMIN/GESTOR/SUPERVISOR/ALMOXARIFADO`; gestão de `profiles` (CRUD de usuários) liberada para `ADMIN/GESTOR/SUPERVISOR`. `DESPACHANTE` só lê.
-- Achado e removido no caminho: existiam policies `allow_all_*` (não versionadas em nenhuma migration anterior) liberando leitura/escrita total a `public`, inclusive sem login, nas 4 tabelas operacionais — anulavam toda a hierarquia. Removidas na migration `018`.
-- `frontend/lib/permissions.ts` (novo): `canWrite`, `canManageUsers`, `roleLabels`, `assignableRoles`.
-- Sidebar (`layout.tsx`) filtra menu por role + redireciona se a rota atual não é permitida pro role do usuário.
-- `dashboard/page.tsx`: ações de escrita (editar/excluir/vincular) somem para quem não tem `canWrite` (ex: Despachante).
-- Nova tela `/dashboard/usuarios` — CRUD de usuários, só visível pra `ADMIN/GESTOR/SUPERVISOR`.
-- `frontend/lib/supabase-admin.ts` + `app/api/users/route.ts` (POST) + `app/api/users/[id]/route.ts` (DELETE) — únicos pontos que tocam a `service_role` key, validando a sessão/role do chamador antes de qualquer operação admin. A chave nunca sai do servidor.
-- Todas as migrations aplicadas em produção via `npx tsx run_migration.ts <arquivo>` (rodar da pasta `frontend/`).
-
-### 11.2 Bug encontrado e corrigido: `handle_new_user()` quebrada
-
-A migration `016` renomeou o enum `ALMOXARIFE` → `ALMOXARIFADO`, mas a função `handle_new_user()` (trigger `on_auth_user_created` em `auth.users`, que cria a linha em `profiles` automaticamente ao criar um usuário) tinha o valor antigo **hardcoded** como fallback:
-
-```sql
-COALESCE((NEW.raw_user_meta_data->>'role')::role_type, 'ALMOXARIFE')  -- 'ALMOXARIFE' não existe mais no enum
+```bash
+npx tsx run_migration.ts <arquivo.sql>
 ```
 
-Isso quebrava a criação de **qualquer** usuário novo (Postgres tenta resolver o literal como `role_type` mesmo quando o `COALESCE` não cai nesse branch, porque é um cast de constante feito em tempo de parse). Corrigido na migration `019` trocando o literal para `'ALMOXARIFADO'`. **Já aplicada em produção.**
+> Toda operação de `DELETE` em produção exige backup prévio e escopo travado.
 
-### 11.3 Segundo bug encontrado e corrigido: `search_path` da trigger — RESOLVIDO
+### Scripts descartáveis
 
-Mesmo depois da correção 11.2, `supabase.auth.admin.createUser(...)` (SDK, API direta e o próprio painel do Supabase) continuava retornando:
-
-```json
-{"code":500,"error_code":"unexpected_failure","msg":"Database error creating new user"}
-```
-
-**Causa raiz:** `handle_new_user()` é `SECURITY DEFINER` mas não fixava `search_path`. O role `supabase_auth_admin` (quem o GoTrue usa de verdade pra criar usuários — confirmado com `SELECT rolname, rolconfig FROM pg_roles WHERE rolname = 'supabase_auth_admin'`) tem `search_path = 'auth'` **apenas**, sem `public`. Uma função `SECURITY DEFINER` sem `SET search_path` herda o `search_path` de quem a chama (não do dono) — então o `INSERT INTO profiles (...)` (sem schema qualificado) dentro da trigger tentava resolver `profiles`/`role_type` dentro do schema `auth`, onde não existem, e falhava.
-
-Por isso os testes manuais conectando como `postgres` (cujo `search_path` inclui `public`) sempre funcionavam, mas a chamada real do GoTrue nunca funcionou — provavelmente **esse bug é anterior a qualquer migration deste projeto**, não uma regressão da hierarquia de permissões. Isso também explica os 3 usuários órfãos em `auth.users` sem linha em `profiles` (`admin@traceone.com`, `almox@traceone.com`, `gestor@traceone.com`, criados em 2026-07-28) — **provavelmente foram criados direto no painel/API do GoTrue antes da trigger existir**, então nunca tiveram profile gerado (não é sobre `000_drop_all.sql` como cheguei a suspeitar antes).
-
-**Correção (migration `020`):**
-
-```sql
-CREATE OR REPLACE FUNCTION handle_new_user()
-RETURNS TRIGGER AS $$
-BEGIN
-  INSERT INTO public.profiles (id, name, role)
-  VALUES (
-    NEW.id,
-    COALESCE(NEW.raw_user_meta_data->>'name', split_part(NEW.email, '@', 1)),
-    COALESCE((NEW.raw_user_meta_data->>'role')::public.role_type, 'ALMOXARIFADO')
-  );
-  RETURN NEW;
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
-```
-
-**Já aplicada em produção e confirmada funcionando** — usuário `matheus.galdino@engelmig.com.br` (ADMIN) criado com sucesso via `supabase.auth.admin.createUser()` depois dessa correção, com linha em `profiles` gerada corretamente pela trigger.
-
-> **Lição pra qualquer função `SECURITY DEFINER` nova neste projeto:** sempre declarar `SET search_path = public` (ou schema explícito em cada referência) — nunca depender do `search_path` de quem chama.
-
-Os 3 usuários órfãos (`admin@traceone.com`, `almox@traceone.com`, `gestor@traceone.com`) continuam sem `profiles` — se forem usados, alguém vai precisar inserir a linha manualmente em `profiles` ou recriá-los.
-
-### 11.4 Gestão de senha — sem o admin nunca saber a senha definitiva de ninguém (2026-08-06)
-
-Modelo adotado: **usuário novo nasce com senha temporária padrão `123456`** (constante `DEFAULT_PASSWORD` em `frontend/lib/permissions.ts`, compartilhada entre backend e frontend); o próprio usuário troca por uma senha só dele no primeiro acesso. O admin nunca define nem vê a senha definitiva de ninguém.
-
-> Já existiu uma versão anterior desse fluxo baseada em convite por email (`inviteUserByEmail`) — foi substituída por essa abordagem de senha padrão a pedido explícito do usuário do projeto. Não reintroduzir o fluxo de convite sem confirmar antes.
-
-- **Criar usuário** (`/dashboard/usuarios`) → admin informa só nome/email/papel → `POST /api/users` chama `supabase.auth.admin.createUser({ email, password: DEFAULT_PASSWORD, email_confirm: true, user_metadata: { name, role } })` (service role). Sem envio de email nessa etapa.
-- **Primeiro acesso** (tela de login, link "É seu primeiro acesso?") → usuário informa email + a senha temporária (`123456` pré-preenchido) → `supabase.auth.signInWithPassword(...)` no client (sem passar pela nossa API) → se autenticar, `router.push("/reset-senha")` com a sessão real já estabelecida → lá ele define a senha definitiva (`updateUser({ password })`) → a página desloga (`signOut()`) e manda de volta pra `/login?resetok=1`, que mostra um banner de sucesso e pede pra entrar de novo já com a senha nova.
-- **Editar usuário** → admin só edita nome/email/papel/status (`PATCH /api/users/[id]`). Pra resetar a senha de alguém que esqueceu a própria senha definitiva, o botão "Enviar link de redefinição de senha" dispara `supabase.auth.resetPasswordForEmail()` (API pública, não precisa de service role) — mesma função usada no "Esqueci minha senha" do login.
-- **Usuário troca a própria senha já logado** (ícone de chave `KeyRound` no sidebar) → pede senha atual + nova; reautentica com `signInWithPassword` antes de aplicar `updateUser({ password })` — tudo client-side, sem service role (`changeOwnPassword` em `lib/api.ts`).
-- **Esqueci minha senha** (tela de login, fluxo separado do "Primeiro acesso") → `resetPasswordForEmail(email, { redirectTo: origin + '/reset-senha' })`, pra quem já tinha senha própria e esqueceu.
-- `/reset-senha` (`app/(auth)/reset-senha/page.tsx`) é a página pública compartilhada por **três fluxos**: primeiro acesso (sessão já ativa via `signInWithPassword` antes de chegar lá), link de recuperação de senha (sessão criada pelo Supabase a partir do hash da URL, `detectSessionInUrl`), e — se algum dia voltar — link de convite. Em qualquer caso, ela só chama `updateUser({ password })`, desloga e manda pro login.
-- Rotas server-side compartilham o guard `requireManager()` em `frontend/lib/api-auth.ts` (extraído pra não duplicar entre as rotas).
-- `useSearchParams()` na página de login (usado pro banner `?resetok=1`) exige um `<Suspense>` — o componente é dividido em `LoginPage` (wrapper com `Suspense`) + `LoginPageInner` (conteúdo real). Sem isso o `next build` falha com "useSearchParams() should be wrapped in a suspense boundary".
-
-### 11.5 Convenção de scripts descartáveis
-
-Scripts de diagnóstico criados em `frontend/*.ts` para investigar o banco direto (fora dos scripts permanentes do projeto como `run_migration.ts`, `import_colab.ts` etc.) devem ser **apagados assim que o teste for concluído** — não fazem parte do projeto, servem só pra uma pergunta pontual. Anotar aqui o que já foi testado evita recriar o mesmo script na próxima sessão.
+Scripts de diagnóstico criados em `frontend/*.ts` para investigar o banco devem ser **apagados assim que o teste terminar**. Os permanentes são `run_migration.ts`, `import_colab.ts`, `verify_db.ts`.
 
 ---
 
-## 12. Gráfico "Situação Geral" — componente vendorizado do Bklit UI (2026-08-06)
+## 15. Histórico de decisões relevantes
 
-O donut do card "Situação Geral" (`/dashboard`) trocou de Recharts (`<PieChart><Pie><Cell>`) pra um componente composable (`<PieChart data={...}><PieSlice index={i} /><PieCenter defaultLabel="Total" /></PieChart>`) vindo de **https://bklit.com** (registry compatível com `shadcn` CLI, não é um pacote npm instalável direto).
+### 15.1 Hierarquia de permissões (2026-08-06)
 
-### Como foi feito
+`role_type` passou de 3 para 5 valores (`016`–`017`); `ALMOXARIFE` virou `ALMOXARIFADO` via `ALTER TYPE ... RENAME VALUE`. Foram removidas as policies `allow_all_*` que liberavam acesso total a `public` (`018`). Criados `frontend/lib/permissions.ts`, a tela `/dashboard/usuarios` e as rotas `/api/users` (únicos pontos que tocam a `service_role`).
 
-O projeto **não tem shadcn/ui configurado** (sem `components.json`, sem `cn()`/tokens de tema) — rodar `npx shadcn@latest add @bklit/pie-chart` do zero exigiria inicializar todo esse tooling só por causa de um gráfico. Em vez disso, os arquivos-fonte foram **vendorizados manualmente**:
+**Dois bugs encontrados no caminho:**
+1. `handle_new_user()` tinha `'ALMOXARIFE'` hardcoded como fallback — o literal é resolvido em tempo de parse, então quebrava a criação de **qualquer** usuário mesmo sem cair naquele branch. Corrigido na `020`.
+2. A mesma função era `SECURITY DEFINER` **sem** `SET search_path`. O GoTrue chama como `supabase_auth_admin` (`search_path = 'auth'`), então o `INSERT INTO profiles` não resolvia. Testes conectando como `postgres` sempre funcionavam — por isso demorou a aparecer. Corrigido na `021`. Provavelmente esse bug é anterior a todas as migrations do projeto.
 
-1. Baixado o JSON do registry direto (`curl https://bklit.com/r/pie-chart.json`, mais as `registryDependencies` `chart-animation` e `utils`, cada um com seu próprio JSON).
-2. Extraído o campo `content` de cada `files[]` pro path indicado em `target`, resultando em:
-   - `frontend/components/charts/` (11 arquivos: `pie-chart.tsx`, `pie-context.tsx`, `pie-slice.tsx`, `pie-center.tsx`, `pie-center-shell.tsx`, `chart-stat-flow.tsx`, `chart-center-typography.ts`, `animation.ts`, `motion-utils.ts`, `use-mount-progress.ts`, `use-enter-complete.ts`, `chart-reveal-clip.tsx`, `static-chart-preview-context.tsx`, `chart-defs.ts`)
-   - `frontend/lib/utils.ts` (helper `cn()` clássico do shadcn, `clsx` + `tailwind-merge`)
-3. Dependências runtime instaladas via npm: `@number-flow/react`, `@visx/group@4.0.1-alpha.0`, `@visx/responsive@4.0.1-alpha.0`, `@visx/shape@4.0.1-alpha.0`, `d3-shape` (+ `@types/d3-shape` como dev dep — some junto com o `recharts` removido, precisou ser readicionado manualmente), `motion`, `clsx`, `tailwind-merge`.
-4. `recharts` foi **removido** do `package.json` (`npm uninstall recharts`) — era a única lib de gráfico no projeto e ficou 100% sem uso depois da troca.
-5. Adicionadas variáveis CSS em `app/globals.css` (`:root`) que os componentes consomem via `var(--chart-1)`..`var(--chart-5)`, `--chart-background/foreground/foreground-muted/label`, mapeadas pra combinar com a paleta já usada no dashboard (âmbar `#f59e0b` = pendentes, esmeralda `#10b981` = concluídos). Também um bloco `@theme inline` mapeando `--color-foreground`, `--color-muted`, `--color-chart-label` pro Tailwind v4 gerar as utilities `text-foreground`, `bg-muted`, `text-chart-label` que o componente usa (o projeto não tinha esses tokens antes).
+### 15.2 Gestão de senha (2026-08-06)
 
-### Achado durante a verificação (não é bug — foi erro de metodologia de teste)
+Modelo de senha temporária padrão substituiu o convite por e-mail, a pedido explícito do dono do projeto. Detalhes no item [4](#4-autenticação-e-sessão).
 
-Ao testar via Playwright headless, o donut apareceu **quebrado** (fragmentos em vez de anel) em capturas de tela feitas ~2.5s depois do dashboard carregar. Investigação mostrou que a animação de entrada da lib (`useMountProgress`, tween de ~1.1s + stagger por fatia) simplesmente ainda não tinha terminado — em Chromium headless via Playwright ela roda visivelmente mais devagar que num browser normal em foreground. Esperando 10s a mais, o anel renderiza perfeitamente (âmbar/esmeralda, total no centro, sem erros de console). **Não mexer no código da lib achando que isso é bug** — é só a animação de entrada (visualmente correta pro usuário real).
+Nota técnica do web: `useSearchParams()` na página de login (banner `?resetok=1`) exige `<Suspense>` — daí o par `LoginPage` (wrapper) + `LoginPageInner`. Sem isso o `next build` falha.
 
-### Se for vendorizar outro componente do Bklit no futuro
+### 15.3 Donut "Situação Geral" — componente vendorizado do Bklit UI (2026-08-06)
 
-Repetir o mesmo processo: `curl https://bklit.com/r/<nome>.json`, resolver `registryDependencies` recursivamente, extrair `files[].content` pros `target` paths, instalar as `dependencies` npm listadas, e checar se o componente usa mais alguma CSS var/utility Tailwind que ainda não existe em `globals.css`.
+O projeto **não tem shadcn/ui configurado**. Em vez de inicializar todo esse tooling por um gráfico, os arquivos do componente de `https://bklit.com` foram vendorizados à mão: baixar `https://bklit.com/r/<nome>.json`, resolver `registryDependencies` recursivamente, extrair `files[].content` para os `target` paths, instalar as dependências npm listadas e conferir se faltam CSS vars/utilities em `globals.css`. Resultado em `frontend/components/charts/` + `frontend/lib/utils.ts`. `recharts` foi removido do projeto.
+
+> **Não confundir com bug:** testado por Playwright headless, o donut aparece "quebrado" em capturas feitas ~2,5 s após o load — é só a animação de entrada (`useMountProgress`, ~1,1 s + stagger), que roda bem mais devagar em Chromium headless. Esperando mais alguns segundos, renderiza perfeito.
+
+### 15.4 Qualidade de dados — problemas já corrigidos
+
+- Matrículas com espaço/`\xa0` no final (`e253433 `): 6 colaboradores duplicados; medidores migrados e duplicatas excluídas.
+- Case inconsistente em `go`/`gc`/`supervisor` normalizado para Title Case.
+- Supervisor "Aecio" removido dos vínculos (`supervisor = NULL`).
+- `'Clerio Goncalves dos Santos'` → `'Clerio Goncalves Dos Santos'`.
+
+### 15.5 Incidente de perda de dados (2026-09-16)
+
+Medidores foram reconstruídos cruzando fontes. Os que ficaram sem serial confiável ou com mais de um candidato estão em `medidor_recuperacao_pendente` e são tratados na tela de Recuperação de Dados (ADMIN) — parte manualmente, parte pela Automação GDIS.
 
 ---
 
-## 13. Identidade visual (2026-09-23)
+## 16. Próximos passos
 
-Os arquivos-fonte da marca (logotipos, ícones, tema CSS e componente `Logo`) ficam em **`docs/marca/`**, com um `LEIA-ME.md` descrevendo cada peça.
-
-**Símbolo:** um "1" traçado como trilha de circuito — sai do anel vazio (medidor pendente) e termina no ponto azul cheio (medidor concluído). É a jornada do medidor em uma forma só.
-
-**Cores principais:** Tinta `#0f172a` (texto e traço do símbolo), Sinal `#2563eb` (ação principal, links, foco, ponto da marca), Sinal claro `#60a5fa` (ponto da marca sobre fundo escuro), Noite `#070c1f` (login e sidebar). Os tokens vivem em `frontend/app/traceone-tema.css`, importado logo depois do `@import "tailwindcss"` no `globals.css`, e geram utilities do Tailwind v4 (`bg-tinta`, `text-sinal`, `border-linha`, `bg-pendente-fundo`, `font-codigo`…). Neutros: Névoa (fundo), Linha (bordas), Aço e Aço claro (texto secundário e ícones).
-
-**Fontes:** Archivo (marca, títulos e interface, com eixo `wdth`) e Atkinson Hyperlegible Mono (`font-codigo`) para serial, matrícula, serviço GDIS e código SAP. Ambas via `next/font/google` no `app/layout.tsx`.
-
-**Marcadores de status** (`frontend/components/StatusMedidor.tsx`): cada status tem um marcador SVG próprio, além da cor — anel vazio = pendente, dois anéis lado a lado = revisão (caso ambíguo), ponto cheio = concluído, anel com barra = erro. Cada um usa o token de texto, a versão `-fundo` e a versão `-marca`.
-
-> Atenção ao ligar o componente em telas novas: o status persistido do medidor é **binário** (`StatusMedidor = 'PENDENTE' | 'CONCLUIDO'` em `lib/supabase.ts`). A variante `revisao` hoje é usada só no `tipo: "AMBIGUO"` da tela de Recuperação de Dados, e a variante `erro` não tem call site — a automação GDIS tem linguagem visual própria (ícones lucide) e não é status persistido.
-
-Cores ainda fora dos tokens, por não terem equivalente na marca: o navy de ação secundária `#1e3a5f`/`#2d5282` (botões em várias telas), a borda `#1e2942` da sidebar, os gradientes decorativos da tela de registro e as cores do donut do Recharts (`--chart-1..5`, seção 12).
+1. **App Android** — escopo da v1 no item [13](#13-guia-para-o-app-android); o maior ganho é a leitura do serial por câmera no lançamento.
+2. **Resolução de conflitos de match** — tela para as ambiguidades do `match_medidores`.
+3. **Histórico completo de reatribuições** — hoje o modal mostra só a última.
+4. **Cron/job de limpeza** — `servicos_report` antigos, para manter performance.
+5. **Notificações** — alertar gestores quando medidores ultrapassam 45 dias.
+6. **Voltar as migrations para o git** — hoje só existem na máquina local.

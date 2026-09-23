@@ -4,13 +4,7 @@ export default function AuthLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div
-      className="min-h-screen"
-      style={{
-        background:
-          "radial-gradient(ellipse at center, #0d1640 0%, #070c1f 50%, #040810 100%)",
-      }}
-    >
+    <div className="min-h-screen bg-noite-degrade textura-pontos">
       {children}
     </div>
   );

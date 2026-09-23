@@ -15,10 +15,10 @@ import {
   ShieldAlert,
   Bot,
   LogOut,
-  ChevronRight,
   KeyRound,
   X,
 } from "lucide-react";
+import { Logo } from "../../components/Logo";
 import { supabase } from "../../lib/supabase";
 import type { Profile } from "../../lib/supabase";
 import { logout, changeOwnPassword } from "../../lib/api";
@@ -158,13 +158,7 @@ export default function DashboardLayout({
       >
         {/* Logo */}
         <div className="h-14 flex items-center px-5 border-b border-white/10">
-          <span
-            className="text-xl font-black text-white tracking-tight"
-            style={{ letterSpacing: "-0.04em" }}
-          >
-            TraceOne
-            <span className="text-blue-400">.</span>
-          </span>
+          <Logo tema="escuro" className="h-[22px] w-auto" />
         </div>
 
         {/* Nav */}
@@ -191,7 +185,7 @@ export default function DashboardLayout({
                 />
                 {label}
                 {isActive && (
-                  <ChevronRight size={14} className="ml-auto text-blue-400" />
+                  <span className="ml-auto size-[7px] rounded-full bg-sinal" />
                 )}
               </Link>
             );

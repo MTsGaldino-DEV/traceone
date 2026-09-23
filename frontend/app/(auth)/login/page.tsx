@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { login, requestPasswordReset } from "../../../lib/api";
 import { supabase } from "../../../lib/supabase";
 import { DEFAULT_PASSWORD } from "../../../lib/permissions";
+import { Logo } from "../../../components/Logo";
 
 type Mode = "login" | "forgot" | "first-access";
 
@@ -107,27 +108,12 @@ function LoginPageInner() {
 
   return (
     <main className="min-h-screen flex items-center justify-center">
-      {/* Subtle background pattern */}
-      <div
-        className="absolute inset-0 opacity-5"
-        style={{
-          backgroundImage: `radial-gradient(circle at 2px 2px, #fff 1px, transparent 0)`,
-          backgroundSize: "40px 40px",
-        }}
-      />
-
       <div className="relative w-full max-w-md px-4">
         {/* Logo above card */}
         <div className="text-center mb-8">
-          <h1
-            className="text-3xl font-black tracking-tight text-white"
-            style={{ letterSpacing: "-0.04em" }}
-          >
-            TraceOne
-            <span className="text-blue-400">.</span>
-          </h1>
-          <p className="text-blue-200 text-sm mt-1 font-medium tracking-wide uppercase opacity-70">
-            Controle de Estoque
+          <Logo tema="escuro" className="mx-auto h-9 w-auto" />
+          <p className="text-blue-200 text-sm mt-1 font-medium opacity-70">
+            Controle de medidores
           </p>
         </div>
 

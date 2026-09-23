@@ -1,0 +1,63 @@
+/*
+ * TraceOne: tokens da identidade visual para Tailwind CSS v4.
+ * No app/globals.css, logo depois de @import "tailwindcss";, adicione:
+ *   @import "./traceone-tema.css";
+ * Gera utilitários como bg-tinta, text-sinal, border-linha, bg-pendente-fundo, font-codigo.
+ */
+
+@theme {
+  /* Marca */
+  --color-tinta: #0f172a;         /* texto principal, logotipo, trilha do símbolo */
+  --color-sinal: #2563eb;         /* ação principal, links, foco, ponto da marca */
+  --color-sinal-forte: #1d4ed8;   /* hover do botão principal */
+  --color-sinal-fundo: #eff6ff;   /* item ativo do menu, linha selecionada */
+  --color-sinal-claro: #60a5fa;   /* ponto da marca sobre Noite */
+  --color-noite: #070c1f;         /* login, capa, apresentações */
+  --color-noite-alto: #0d1640;
+  --color-noite-baixo: #040810;
+
+  /* Neutros (família slate) */
+  --color-nevoa: #f8f9fa;         /* fundo das páginas */
+  --color-linha: #e2e8f0;         /* bordas e divisórias */
+  --color-aco: #64748b;           /* texto secundário */
+  --color-aco-claro: #94a3b8;     /* ícones inativos, placeholders (não usar em texto) */
+
+  /* Status dos medidores: texto / fundo / marcador */
+  --color-pendente: #b45309;
+  --color-pendente-fundo: #fffbeb;
+  --color-pendente-marca: #f59e0b;
+  --color-revisao: #6d28d9;
+  --color-revisao-fundo: #f5f3ff;
+  --color-revisao-marca: #8b5cf6;
+  --color-concluido: #047857;
+  --color-concluido-fundo: #ecfdf5;
+  --color-concluido-marca: #10b981;
+  --color-erro: #b91c1c;
+  --color-erro-fundo: #fef2f2;
+  --color-erro-marca: #ef4444;
+}
+
+/* As variáveis de fonte vêm do next/font no app/layout.tsx */
+@theme inline {
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-codigo: var(--font-atkinson-mono), ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+
+/* Fundo Noite com o degradê do login */
+@utility bg-noite-degrade {
+  background: radial-gradient(ellipse at center, var(--color-noite-alto) 0%, var(--color-noite) 50%, var(--color-noite-baixo) 100%);
+}
+
+/* Textura de pontos usada sobre Noite */
+@utility textura-pontos {
+  background-image: radial-gradient(circle at 2px 2px, rgb(255 255 255 / 0.06) 1px, transparent 0);
+  background-size: 40px 40px;
+}
+
+@layer base {
+  body {
+    font-family: var(--font-sans);
+    background: var(--color-nevoa);
+    color: var(--color-tinta);
+  }
+}

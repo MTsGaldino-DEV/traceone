@@ -1,11 +1,7 @@
-@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 @import "tailwindcss";
 @import "./traceone-tema.css";
 
 :root {
-  --background: #f8fafc;
-  --foreground: #0f172a;
-
   /* Tokens dos componentes de gráfico (components/charts/*) */
   --chart-background: #ffffff;
   --chart-foreground: #0f172a;
@@ -26,21 +22,5 @@
 }
 
 body {
-  font-family: 'Inter', system-ui, sans-serif;
-  background: var(--background);
-  color: var(--foreground);
   -webkit-font-smoothing: antialiased;
-}
-
-h1,
-h2,
-h3,
-.display {
-  font-family: 'Space Grotesk', sans-serif;
-  letter-spacing: -0.01em;
-}
-
-.mono,
-.font-mono {
-  font-family: 'IBM Plex Mono', monospace !important;
 }

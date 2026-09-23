@@ -27,6 +27,7 @@ import type {
   DuplicidadeRevisado,
   TipoDuplicidade,
 } from "../../../../lib/api";
+import { StatusMedidor } from "../../../../components/StatusMedidor";
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 interface ToastMsg {
@@ -191,15 +192,10 @@ function GrupoDuplicidade({ tipo, chave, medidores, onLinhaAlterada, onRevisado,
               <td className="px-4 py-2.5 text-xs text-slate-600 font-mono whitespace-nowrap">{m.matricula}</td>
               <td className="px-4 py-2.5 text-xs text-slate-600 max-w-[180px] truncate">{m.colaborador}</td>
               <td className="px-4 py-2.5 whitespace-nowrap">
-                <span
-                  className={`inline-flex items-center px-2 py-0.5 text-[11px] font-bold rounded-md border ${
-                    m.status === "CONCLUIDO"
-                      ? "text-emerald-700 bg-emerald-50 border-emerald-200"
-                      : "text-slate-600 bg-slate-50 border-slate-200"
-                  }`}
-                >
-                  {m.status}
-                </span>
+                <StatusMedidor
+                  status={m.status === "CONCLUIDO" ? "concluido" : "pendente"}
+                  rotulo={m.status}
+                />
               </td>
               <td className="px-4 py-2.5 text-xs text-slate-500 whitespace-nowrap">{formatarData(m.data)}</td>
               <td className="px-4 py-2.5 text-xs whitespace-nowrap">

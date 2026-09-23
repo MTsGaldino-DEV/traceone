@@ -48,6 +48,7 @@ import type { SortConfig, RankingItem, MedidorLog } from "../../../lib/api";
 import type { MedidorCompleto, Colaborador, TipoMedidor, Profile } from "../../../lib/supabase";
 import type { ReatribuicaoHistorico, DashboardMetrics } from "../../../lib/api";
 import { canWrite } from "../../../lib/permissions";
+import { StatusMedidor } from "../../../components/StatusMedidor";
 import { PieChart } from "../../../components/charts/pie-chart";
 import { PieSlice } from "../../../components/charts/pie-slice";
 import { PieCenter } from "../../../components/charts/pie-center";
@@ -1197,15 +1198,7 @@ export default function DashboardPage() {
                           {(row["SERVIÇO GDIS"] as string) || "—"}
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap overflow-hidden">
-                          <span
-                            className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
-                              isPendente
-                                ? "bg-amber-100 text-amber-700"
-                                : "bg-emerald-100 text-emerald-700"
-                            }`}
-                          >
-                            {isPendente ? "PENDENTE" : "CONCLUÍDO"}
-                          </span>
+                          <StatusMedidor status={isPendente ? "pendente" : "concluido"} />
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap overflow-hidden text-right">
                           {dias != null ? (

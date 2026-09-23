@@ -15,6 +15,7 @@ import {
   resolverRecuperacaoPendente,
 } from "../../../../lib/api";
 import type { RecuperacaoPendenteItem } from "../../../../lib/api";
+import { StatusMedidor } from "../../../../components/StatusMedidor";
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 interface ToastMsg {
@@ -77,15 +78,13 @@ function RecuperacaoRow({ item, onResolvido, addToast }: RowProps) {
   return (
     <tr className="border-b border-slate-100 hover:bg-slate-50 transition-colors">
       <td className="px-4 py-3 whitespace-nowrap">
-        <span
-          className={`inline-flex items-center px-2 py-0.5 text-[11px] font-black rounded-md border ${
-            item.tipo === "AMBIGUO"
-              ? "text-amber-700 bg-amber-50 border-amber-200"
-              : "text-slate-600 bg-slate-50 border-slate-200"
-          }`}
-        >
-          {item.tipo === "AMBIGUO" ? "AMBÍGUO" : "SEM SERIAL"}
-        </span>
+        {item.tipo === "AMBIGUO" ? (
+          <StatusMedidor status="revisao" rotulo="AMBÍGUO" />
+        ) : (
+          <span className="inline-flex items-center px-2 py-0.5 text-[11px] font-black rounded-md border text-slate-600 bg-slate-50 border-slate-200">
+            SEM SERIAL
+          </span>
+        )}
       </td>
       <td className="px-4 py-3 text-xs text-slate-400 font-mono whitespace-nowrap">{item.serialAtual}</td>
       <td className="px-4 py-3 text-xs text-slate-600 font-mono whitespace-nowrap">{item.matricula}</td>

@@ -175,7 +175,7 @@ function ConferenciaRow({
   return (
     <tr
       className={`border-b border-slate-100 transition-colors ${
-        isNext ? "bg-sinal-fundo/40" : "hover:bg-slate-50"
+        isNext ? "bg-sinal-fundo/40" : "hover:bg-slate-100"
       }`}
     >
       {/* Nº Serviço */}
@@ -376,7 +376,7 @@ function AguardandoRow({ servico, onVinculado, onRevertido, onExcluido, onDesatu
   };
 
   return (
-    <tr className="border-b border-amber-100 hover:bg-amber-50/30 transition-colors">
+    <tr className="border-b border-amber-100 hover:bg-amber-100/70 transition-colors">
       <td className="px-4 py-3 whitespace-nowrap">
         <span className="font-codigo text-sm font-bold text-slate-800">{servico.servico}</span>
         <span className="block text-xs text-slate-400 font-codigo">{terminoFormatado}</span>

@@ -9,6 +9,9 @@ import {
   Clock,
   X,
   Check,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import {
   getRecuperacaoPendente,
@@ -162,6 +165,19 @@ function RecuperacaoRow({ item, selecao, ocupados, onSelecionar, onResolvido, ad
   );
 }
 
+// ─── Ordenação ────────────────────────────────────────────────────────────────
+type ColunaOrdenavel = "tipo" | "serialAtual" | "matricula" | "colaborador" | "tipoEquipamento" | "servicoGdis" | "data";
+
+const COLUNAS_ORDENAVEIS: { key: ColunaOrdenavel; label: string }[] = [
+  { key: "tipo", label: "Tipo" },
+  { key: "serialAtual", label: "Serial atual" },
+  { key: "matricula", label: "Matrícula" },
+  { key: "colaborador", label: "Colaborador" },
+  { key: "tipoEquipamento", label: "Equipamento" },
+  { key: "servicoGdis", label: "Serviço GDIS" },
+  { key: "data", label: "Data" },
+];
+
 // ─── Página principal ─────────────────────────────────────────────────────────
 export default function RecuperacaoIncidentePage() {
   const [itens, setItens] = useState<RecuperacaoPendenteItem[]>([]);
@@ -185,6 +201,30 @@ export default function RecuperacaoIncidentePage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Clique no cabeçalho: crescente → decrescente → ordem original (igual à Lista de Medidores)
+  const [ordem, setOrdem] = useState<{ coluna: ColunaOrdenavel; ascending: boolean } | null>(null);
+
+  const toggleOrdem = (coluna: ColunaOrdenavel) => {
+    setOrdem((prev) => {
+      if (prev?.coluna !== coluna) return { coluna, ascending: true };
+      if (prev.ascending) return { coluna, ascending: false };
+      return null;
+    });
+  };
+
+  const itensOrdenados = useMemo(() => {
+    if (!ordem) return itens;
+    const { coluna, ascending } = ordem;
+    return [...itens].sort((a, b) => {
+      const va = a[coluna] ?? "";
+      const vb = b[coluna] ?? "";
+      // Vazio sempre no fim, nos dois sentidos
+      if (!va || !vb) return !va && !vb ? 0 : !va ? 1 : -1;
+      const cmp = va.localeCompare(vb, "pt-BR", { numeric: true, sensitivity: "base" });
+      return ascending ? cmp : -cmp;
+    });
+  }, [itens, ordem]);
 
   // medidorId → serial escolhido no select daquela linha
   const [selecoes, setSelecoes] = useState<Record<string, string>>({});
@@ -287,18 +327,29 @@ export default function RecuperacaoIncidentePage() {
             <table className="w-full">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Tipo</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Serial atual</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Matrícula</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Colaborador</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Equipamento</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Serviço GDIS</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Data</th>
+                  {COLUNAS_ORDENAVEIS.map((col) => (
+                    <th
+                      key={col.key}
+                      onClick={() => toggleOrdem(col.key)}
+                      className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide whitespace-nowrap cursor-pointer hover:text-slate-800 select-none"
+                    >
+                      <span className="flex items-center gap-1">
+                        {col.label}
+                        {ordem?.coluna !== col.key ? (
+                          <ArrowUpDown size={12} className="text-slate-300" />
+                        ) : ordem.ascending ? (
+                          <ArrowUp size={12} className="text-sinal" />
+                        ) : (
+                          <ArrowDown size={12} className="text-sinal" />
+                        )}
+                      </span>
+                    </th>
+                  ))}
                   <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Corrigir</th>
                 </tr>
               </thead>
               <tbody>
-                {itens.map((i) => (
+                {itensOrdenados.map((i) => (
                   <RecuperacaoRow
                     key={i.medidorId}
                     item={i}

@@ -22,7 +22,7 @@ import { Logo } from "../../components/Logo";
 import { supabase } from "../../lib/supabase";
 import type { Profile } from "../../lib/supabase";
 import { logout, changeOwnPassword } from "../../lib/api";
-import { canManageColaboradores, canManageUsers, isAdmin, roleLabels } from "../../lib/permissions";
+import { canManageColaboradores, canManageUsers, canRecuperarDados, isAdmin, roleLabels } from "../../lib/permissions";
 
 const navItems = [
   { label: "Lista de Medidores", href: "/dashboard", icon: LayoutDashboard, despachante: true },
@@ -43,9 +43,13 @@ const usuariosNavItems = [
   { label: "Gestão de Usuários", href: "/dashboard/usuarios", icon: Users },
 ];
 
+// Visível pra ADMIN e almoxarifado
+const recuperacaoNavItems = [
+  { label: "Recuperação de Dados", href: "/dashboard/recuperacao-incidente", icon: ShieldAlert },
+];
+
 // Visível só pra ADMIN
 const adminNavItems = [
-  { label: "Recuperação de Dados", href: "/dashboard/recuperacao-incidente", icon: ShieldAlert },
   { label: "Automação GDIS", href: "/dashboard/automacao-gdis", icon: Bot },
 ];
 
@@ -95,7 +99,10 @@ export default function DashboardLayout({
   const withGestao = canManageUsers(profile?.role)
     ? [...withColaboradores, ...usuariosNavItems]
     : withColaboradores;
-  const allNavItems = isAdmin(profile?.role) ? [...withGestao, ...adminNavItems] : withGestao;
+  const withRecuperacao = canRecuperarDados(profile?.role)
+    ? [...withGestao, ...recuperacaoNavItems]
+    : withGestao;
+  const allNavItems = isAdmin(profile?.role) ? [...withRecuperacao, ...adminNavItems] : withRecuperacao;
 
   useEffect(() => {
     if (!profile) return;

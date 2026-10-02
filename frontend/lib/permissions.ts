@@ -16,6 +16,11 @@ export function canManageColaboradores(role?: Role | null): boolean {
   return !!role && WRITE_ROLES.includes(role);
 }
 
+/** Aba "Recuperação de Dados": ADMIN e almoxarifado. */
+export function canRecuperarDados(role?: Role | null): boolean {
+  return role === "ADMIN" || role === "ALMOXARIFADO";
+}
+
 export function canWrite(role?: Role | null): boolean {
   return !!role && WRITE_ROLES.includes(role);
 }

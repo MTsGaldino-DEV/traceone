@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   Loader2,
   RefreshCw,
@@ -49,12 +49,24 @@ function formatarData(iso: string) {
 // ─── Linha ─────────────────────────────────────────────────────────────────────
 interface RowProps {
   item: RecuperacaoPendenteItem;
-  onResolvido: (medidorId: string) => void;
+  /** Serial escolhido no select desta linha ("" = nenhum). */
+  selecao: string;
+  /** serial → medidorId que está com ele (escolhido em outra linha ou já gravado nesta sessão). */
+  ocupados: Map<string, string>;
+  onSelecionar: (medidorId: string, serial: string) => void;
+  onResolvido: (medidorId: string, serial: string) => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
 }
 
-function RecuperacaoRow({ item, onResolvido, addToast }: RowProps) {
-  const [serial, setSerial] = useState(item.candidatosSerial?.[0] ?? "");
+function RecuperacaoRow({ item, selecao, ocupados, onSelecionar, onResolvido, addToast }: RowProps) {
+  const temCandidatos = (item.candidatosSerial?.length ?? 0) > 0;
+  // Serial escolhido numa linha some das outras, pra não gravar o mesmo em dois medidores.
+  const disponiveis = (item.candidatosSerial ?? []).filter((c) => {
+    const dono = ocupados.get(c);
+    return dono === undefined || dono === item.medidorId;
+  });
+  const [digitado, setDigitado] = useState("");
+  const serial = temCandidatos ? (disponiveis.includes(selecao) ? selecao : "") : digitado;
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -67,7 +79,7 @@ function RecuperacaoRow({ item, onResolvido, addToast }: RowProps) {
     try {
       await resolverRecuperacaoPendente(item.medidorId, s);
       addToast("success", `Serial de ${item.matricula} corrigido para ${s}.`);
-      onResolvido(item.medidorId);
+      onResolvido(item.medidorId, s);
     } catch (err) {
       setErro(err instanceof Error ? err.message : "Erro ao corrigir.");
     } finally {
@@ -98,13 +110,14 @@ function RecuperacaoRow({ item, onResolvido, addToast }: RowProps) {
       <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{formatarData(item.data)}</td>
       <td className="px-3 py-3">
         <div className="flex items-center gap-2">
-          {item.candidatosSerial && item.candidatosSerial.length > 0 ? (
+          {temCandidatos ? (
             <select
               value={serial}
-              onChange={(e) => setSerial(e.target.value)}
+              onChange={(e) => onSelecionar(item.medidorId, e.target.value)}
               className="w-40 px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-codigo font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-sinal-claro"
             >
-              {item.candidatosSerial.map((c) => (
+              <option value="">{disponiveis.length > 0 ? "Selecione…" : "Nenhum disponível"}</option>
+              {disponiveis.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -116,7 +129,7 @@ function RecuperacaoRow({ item, onResolvido, addToast }: RowProps) {
               type="text"
               value={serial}
               onChange={(e) => {
-                setSerial(e.target.value);
+                setDigitado(e.target.value);
                 setErro(null);
               }}
               onKeyDown={(e) => {
@@ -173,8 +186,30 @@ export default function RecuperacaoIncidentePage() {
     load();
   }, [load]);
 
-  const handleResolvido = useCallback((medidorId: string) => {
+  // medidorId → serial escolhido no select daquela linha
+  const [selecoes, setSelecoes] = useState<Record<string, string>>({});
+  // Serials gravados nesta sessão — a lista do banco só reflete isso no próximo carregamento
+  const [gravados, setGravados] = useState<Set<string>>(new Set());
+
+  const ocupados = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of gravados) m.set(s, "");
+    for (const [medidorId, s] of Object.entries(selecoes)) if (s) m.set(s, medidorId);
+    return m;
+  }, [selecoes, gravados]);
+
+  const handleSelecionar = useCallback((medidorId: string, serial: string) => {
+    setSelecoes((prev) => ({ ...prev, [medidorId]: serial }));
+  }, []);
+
+  const handleResolvido = useCallback((medidorId: string, serial: string) => {
     setItens((prev) => prev.filter((i) => i.medidorId !== medidorId));
+    setSelecoes((prev) => {
+      const resto = { ...prev };
+      delete resto[medidorId];
+      return resto;
+    });
+    setGravados((prev) => new Set(prev).add(serial));
   }, []);
 
   return (
@@ -264,7 +299,15 @@ export default function RecuperacaoIncidentePage() {
               </thead>
               <tbody>
                 {itens.map((i) => (
-                  <RecuperacaoRow key={i.medidorId} item={i} onResolvido={handleResolvido} addToast={addToast} />
+                  <RecuperacaoRow
+                    key={i.medidorId}
+                    item={i}
+                    selecao={selecoes[i.medidorId] ?? ""}
+                    ocupados={ocupados}
+                    onSelecionar={handleSelecionar}
+                    onResolvido={handleResolvido}
+                    addToast={addToast}
+                  />
                 ))}
               </tbody>
             </table>

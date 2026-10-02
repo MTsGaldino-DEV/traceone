@@ -1326,3 +1326,50 @@ export async function getMedidoresAcima45Dias(
   return rows.sort((a, b) => b.dias - a.dias);
 }
 
+
+// ─── Backup completo do banco (ADMIN) ─────────────────────────────────────────
+// Gerado no navegador, tabela por tabela, com a sessão do próprio admin (a RLS
+// libera leitura de tudo pra ADMIN). Não dá pra ser rota na Vercel: o JSON
+// passa do limite de 4,5 MB de resposta. Tabela nova no banco precisa entrar
+// nesta lista pra sair no backup.
+
+export const TABELAS_BACKUP: { tabela: string; ordem: string[] }[] = [
+  { tabela: 'profiles', ordem: ['id'] },
+  { tabela: 'colaboradores', ordem: ['matricula'] },
+  { tabela: 'tipos_de_medidores', ordem: ['cod_sap'] },
+  { tabela: 'medidores_list', ordem: ['id'] },
+  { tabela: 'medidor_logs', ordem: ['id'] },
+  { tabela: 'servicos_report', ordem: ['servico'] },
+  { tabela: 'conferencia_45dias_ocultos', ordem: ['medidor_id'] },
+  { tabela: 'duplicidade_revisados', ordem: ['tipo', 'chave'] },
+  { tabela: 'medidor_recuperacao_pendente', ordem: ['medidor_id'] },
+  { tabela: 'automacao_gdis_log', ordem: ['id'] },
+];
+
+export interface BackupCompleto {
+  geradoEm: string;
+  tabelas: Record<string, unknown[]>;
+}
+
+export async function gerarBackupCompleto(
+  onProgresso?: (tabela: string, linhas: number) => void
+): Promise<BackupCompleto> {
+  const tabelas: Record<string, unknown[]> = {};
+  const PAGE = 1000;
+  for (const { tabela, ordem } of TABELAS_BACKUP) {
+    const linhas: unknown[] = [];
+    let from = 0;
+    while (true) {
+      let query = supabase.from(tabela).select('*');
+      for (const col of ordem) query = query.order(col, { ascending: true });
+      const { data, error } = await query.range(from, from + PAGE - 1);
+      if (error) throw new Error(`${tabela}: ${error.message}`);
+      linhas.push(...(data ?? []));
+      onProgresso?.(tabela, linhas.length);
+      if ((data ?? []).length < PAGE) break;
+      from += PAGE;
+    }
+    tabelas[tabela] = linhas;
+  }
+  return { geradoEm: new Date().toISOString(), tabelas };
+}

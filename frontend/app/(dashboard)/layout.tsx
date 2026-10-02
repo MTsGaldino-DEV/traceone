@@ -14,6 +14,7 @@ import {
   Contact,
   ShieldAlert,
   Bot,
+  DatabaseBackup,
   LogOut,
   KeyRound,
   X,
@@ -51,6 +52,7 @@ const recuperacaoNavItems = [
 // Visível só pra ADMIN
 const adminNavItems = [
   { label: "Automação GDIS", href: "/dashboard/automacao-gdis", icon: Bot },
+  { label: "Backup", href: "/dashboard/backup", icon: DatabaseBackup },
 ];
 
 export default function DashboardLayout({

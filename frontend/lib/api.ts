@@ -1134,6 +1134,18 @@ export async function getRecuperacaoPendente(): Promise<RecuperacaoPendenteItem[
   return (data ?? []) as RecuperacaoPendenteItem[];
 }
 
+/** Checagem antes de gravar um serial digitado à mão na Recuperação. */
+export async function serialEmOutroMedidor(serial: string, medidorId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('medidores_list')
+    .select('id')
+    .eq('serial', serial)
+    .neq('id', medidorId)
+    .limit(1);
+  if (error) throw new Error(error.message);
+  return (data ?? []).length > 0;
+}
+
 /** Retorna true se o serial já existia em outra linha (grava mesmo assim). */
 export async function resolverRecuperacaoPendente(medidorId: string, serialCorreto: string): Promise<boolean> {
   const { data, error } = await supabase.rpc('resolver_recuperacao_pendente', {

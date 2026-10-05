@@ -14,8 +14,10 @@ import {
   ArrowDown,
 } from "lucide-react";
 import {
+  deleteMedidor,
   getRecuperacaoPendente,
   resolverRecuperacaoPendente,
+  serialEmOutroMedidor,
 } from "../../../../lib/api";
 import type { RecuperacaoPendenteItem } from "../../../../lib/api";
 import { StatusMedidor } from "../../../../components/StatusMedidor";
@@ -50,6 +52,8 @@ function formatarData(iso: string) {
 }
 
 // ─── Linha ─────────────────────────────────────────────────────────────────────
+const OUTRO_SERIAL = "__outro__";
+
 interface RowProps {
   item: RecuperacaoPendenteItem;
   /** Serial escolhido no select desta linha ("" = nenhum). */
@@ -58,10 +62,11 @@ interface RowProps {
   ocupados: Map<string, string>;
   onSelecionar: (medidorId: string, serial: string) => void;
   onResolvido: (medidorId: string, serial: string) => void;
+  onExcluido: (medidorId: string) => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
 }
 
-function RecuperacaoRow({ item, selecao, ocupados, onSelecionar, onResolvido, addToast }: RowProps) {
+function RecuperacaoRow({ item, selecao, ocupados, onSelecionar, onResolvido, onExcluido, addToast }: RowProps) {
   const temCandidatos = (item.candidatosSerial?.length ?? 0) > 0;
   // Serial escolhido numa linha some das outras, pra não gravar o mesmo em dois medidores.
   const disponiveis = (item.candidatosSerial ?? []).filter((c) => {
@@ -69,10 +74,33 @@ function RecuperacaoRow({ item, selecao, ocupados, onSelecionar, onResolvido, ad
     return dono === undefined || dono === item.medidorId;
   });
   const [digitado, setDigitado] = useState("");
-  const serial = temCandidatos ? (disponiveis.includes(selecao) ? selecao : "") : digitado;
+  // Nenhuma sugestão bate: troca o select por digitação livre
+  const [manual, setManual] = useState(false);
+  const usaSelect = temCandidatos && !manual;
+  const serial = usaSelect ? (disponiveis.includes(selecao) ? selecao : "") : digitado;
   const [salvando, setSalvando] = useState(false);
+  const [excluindo, setExcluindo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (manual) inputRef.current?.focus();
+  }, [manual]);
+
+  const handleSelect = (valor: string) => {
+    if (valor === OUTRO_SERIAL) {
+      onSelecionar(item.medidorId, "");
+      setManual(true);
+      return;
+    }
+    onSelecionar(item.medidorId, valor);
+  };
+
+  const voltarSugestoes = () => {
+    setManual(false);
+    setDigitado("");
+    setErro(null);
+  };
 
   const handleResolver = async () => {
     const s = serial.trim();
@@ -80,6 +108,20 @@ function RecuperacaoRow({ item, selecao, ocupados, onSelecionar, onResolvido, ad
     setSalvando(true);
     setErro(null);
     try {
+      // Serial digitado não passa pelo filtro do select: checa duplicidade aqui
+      if (!usaSelect) {
+        const dono = ocupados.get(s);
+        if (dono !== undefined && dono !== item.medidorId) {
+          setErro("Esse serial já foi escolhido em outra linha.");
+          return;
+        }
+        if (
+          (await serialEmOutroMedidor(s, item.medidorId)) &&
+          !confirm(`Já existe outro medidor com o serial ${s}. Gravar mesmo assim? Vai gerar duplicidade.`)
+        ) {
+          return;
+        }
+      }
       await resolverRecuperacaoPendente(item.medidorId, s);
       addToast("success", `Serial de ${item.matricula} corrigido para ${s}.`);
       onResolvido(item.medidorId, s);
@@ -87,6 +129,21 @@ function RecuperacaoRow({ item, selecao, ocupados, onSelecionar, onResolvido, ad
       setErro(err instanceof Error ? err.message : "Erro ao corrigir.");
     } finally {
       setSalvando(false);
+    }
+  };
+
+  // Apaga o medidor de medidores_list; a pendência sai junto por ON DELETE CASCADE
+  const handleExcluir = async () => {
+    if (!confirm(`Excluir o medidor ${item.serialAtual} (matrícula ${item.matricula}) da lista de medidores? Essa ação não pode ser desfeita.`)) return;
+    setExcluindo(true);
+    setErro(null);
+    try {
+      await deleteMedidor(item.medidorId);
+      addToast("success", `Medidor ${item.serialAtual} excluído.`);
+      onExcluido(item.medidorId);
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : "Erro ao excluir.");
+      setExcluindo(false);
     }
   };
 
@@ -113,10 +170,10 @@ function RecuperacaoRow({ item, selecao, ocupados, onSelecionar, onResolvido, ad
       <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">{formatarData(item.data)}</td>
       <td className="px-3 py-3">
         <div className="flex items-center gap-2">
-          {temCandidatos ? (
+          {usaSelect ? (
             <select
               value={serial}
-              onChange={(e) => onSelecionar(item.medidorId, e.target.value)}
+              onChange={(e) => handleSelect(e.target.value)}
               className="w-40 px-2 py-1.5 border border-slate-300 rounded-lg text-xs font-codigo font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-sinal-claro"
             >
               <option value="">{disponiveis.length > 0 ? "Selecione…" : "Nenhum disponível"}</option>
@@ -125,6 +182,7 @@ function RecuperacaoRow({ item, selecao, ocupados, onSelecionar, onResolvido, ad
                   {c}
                 </option>
               ))}
+              <option value={OUTRO_SERIAL}>+ Outro serial…</option>
             </select>
           ) : (
             <input
@@ -153,6 +211,16 @@ function RecuperacaoRow({ item, selecao, ocupados, onSelecionar, onResolvido, ad
           >
             {salvando ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
           </button>
+          {manual && (
+            <button
+              type="button"
+              onClick={voltarSugestoes}
+              title="Voltar às sugestões"
+              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
         {erro && (
           <div className="flex items-start gap-1.5 mt-1.5">
@@ -160,6 +228,17 @@ function RecuperacaoRow({ item, selecao, ocupados, onSelecionar, onResolvido, ad
             <p className="text-[11px] text-red-600 font-semibold leading-tight">{erro}</p>
           </div>
         )}
+      </td>
+      <td className="px-3 py-3 text-right">
+        <button
+          type="button"
+          onClick={handleExcluir}
+          disabled={excluindo || salvando}
+          title="Excluir medidor"
+          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-40"
+        >
+          {excluindo ? <Loader2 size={14} className="animate-spin" /> : <X size={14} />}
+        </button>
       </td>
     </tr>
   );
@@ -242,15 +321,19 @@ export default function RecuperacaoIncidentePage() {
     setSelecoes((prev) => ({ ...prev, [medidorId]: serial }));
   }, []);
 
-  const handleResolvido = useCallback((medidorId: string, serial: string) => {
+  const removerLinha = useCallback((medidorId: string) => {
     setItens((prev) => prev.filter((i) => i.medidorId !== medidorId));
     setSelecoes((prev) => {
       const resto = { ...prev };
       delete resto[medidorId];
       return resto;
     });
-    setGravados((prev) => new Set(prev).add(serial));
   }, []);
+
+  const handleResolvido = useCallback((medidorId: string, serial: string) => {
+    removerLinha(medidorId);
+    setGravados((prev) => new Set(prev).add(serial));
+  }, [removerLinha]);
 
   return (
     <div className="flex flex-col h-full">
@@ -346,6 +429,7 @@ export default function RecuperacaoIncidentePage() {
                     </th>
                   ))}
                   <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">Corrigir</th>
+                  <th className="px-3 py-2.5" />
                 </tr>
               </thead>
               <tbody>
@@ -357,6 +441,7 @@ export default function RecuperacaoIncidentePage() {
                     ocupados={ocupados}
                     onSelecionar={handleSelecionar}
                     onResolvido={handleResolvido}
+                    onExcluido={removerLinha}
                     addToast={addToast}
                   />
                 ))}

@@ -60,17 +60,40 @@ export interface ItemDataLucas {
   acao: 'DATA';
   medidor_id: string;
   data: string;
+  // Troca de matrícula, só por escolha na revisão. O banco só troca se a
+  // linha ainda estiver com matricula_atual.
+  matricula?: string;
+  matricula_atual?: string;
 }
 
 export type ItemLucas = ItemNovoLucas | ItemDataLucas;
 
 interface ItemLista { serial: string; detail: string }
 
+/**
+ * Linha que não entra sozinha, mas pode ser aplicada pela revisão:
+ *   MATRICULA — atribuição 05/08 com outra matrícula no TraceOne
+ *   MATERIAL  — medidor novo sem Material SAP válido; o usuário escolhe um
+ *   BLOQUEADO — falta algo que a revisão não resolve (ex.: matrícula não cadastrada)
+ */
+export type ItemRevisao = ItemLista & (
+  | {
+      tipo: 'MATRICULA';
+      medidorId: string;
+      data: string;
+      matriculaTraceone: string;
+      matriculaPlanilha: string;
+      matriculaPlanilhaValida: boolean;
+    }
+  | { tipo: 'MATERIAL'; linha: LinhaLucas }
+  | { tipo: 'BLOQUEADO' }
+);
+
 export interface PlanoLucas {
   novos: (ItemNovoLucas & ItemLista)[];
   datas: (ItemDataLucas & ItemLista)[];
   inalterados: number;            // já no TraceOne, nada a mudar
-  ignorados: ItemLista[];         // não entram, com o motivo
+  revisao: ItemRevisao[];         // não entram sem a escolha do usuário
 }
 
 const ALIASES: Record<string, string> = {
@@ -207,6 +230,35 @@ function formatBR(iso: string): string {
 }
 
 /**
+ * Medidor novo a partir de uma linha da planilha. O material vem à parte
+ * porque a revisão pode trocar o da planilha (vazio ou não cadastrado).
+ * Pressupõe linha já validada: data e status preenchidos.
+ */
+export function novoDeLinha(l: LinhaLucas, materialSap: string): ItemNovoLucas & ItemLista {
+  const partes = [`${l.matricula} · atribuído em ${formatBR(l.data!)}`];
+  if (l.status === 'CONCLUIDO') {
+    partes.push(l.dataConclusao ? `concluído em ${formatBR(l.dataConclusao)}` : 'concluído (sem data)');
+    if (l.servicoGdis) partes.push(`serviço ${l.servicoGdis}`);
+  } else {
+    partes.push('pendente');
+  }
+
+  return {
+    acao: 'NOVO',
+    serial: l.serial,
+    data: l.data!,
+    material_sap: materialSap,
+    matricula: l.matricula,
+    status: l.status!,
+    data_conclusao: l.dataConclusao,
+    servico_gdis: l.servicoGdis,
+    servico_campo: l.servicoCampo,
+    equipe: l.equipe,
+    detail: partes.join(' · '),
+  };
+}
+
+/**
  * Cruza a planilha com o banco. O serial é a chave: se já existe em qualquer
  * linha do cadastro, o medidor não é inserido de novo, e só a data genérica
  * pode ser trocada.
@@ -225,9 +277,10 @@ export function montarPlanoLucas(
     else cadastro.set(k, [m]);
   }
 
-  const plano: PlanoLucas = { novos: [], datas: [], inalterados: 0, ignorados: [] };
-  const ignorar = (l: LinhaLucas, motivo: string) =>
-    plano.ignorados.push({ serial: l.serial, detail: `${motivo} (aba ${l.aba}, linha ${l.linhaPlanilha})` });
+  const plano: PlanoLucas = { novos: [], datas: [], inalterados: 0, revisao: [] };
+  const onde = (l: LinhaLucas) => `aba ${l.aba}, linha ${l.linhaPlanilha}`;
+  const bloquear = (l: LinhaLucas, motivo: string) =>
+    plano.revisao.push({ tipo: 'BLOQUEADO', serial: l.serial, detail: `${motivo} (${onde(l)})` });
 
   for (const l of linhas) {
     const existentes = cadastro.get(l.serial);
@@ -242,7 +295,17 @@ export function montarPlanoLucas(
       // mesmo período de posse que a planilha descreve.
       const alvo = genericas.find((m) => m.matricula.toLowerCase() === l.matricula);
       if (!alvo) {
-        ignorar(l, `Atribuição 05/08/2026 não corrigida: no TraceOne está com ${genericas[0].matricula}, na planilha com ${l.matricula}`);
+        const outra = genericas[0];
+        plano.revisao.push({
+          tipo: 'MATRICULA',
+          serial: l.serial,
+          detail: `Atribuição 05/08/2026 → ${formatBR(l.data)} · TraceOne: ${outra.matricula} · planilha: ${l.matricula} (${onde(l)})`,
+          medidorId: outra.id,
+          data: l.data,
+          matriculaTraceone: outra.matricula.toLowerCase(),
+          matriculaPlanilha: l.matricula,
+          matriculaPlanilhaValida: matriculasValidas.has(l.matricula),
+        });
         continue;
       }
       plano.datas.push({
@@ -252,34 +315,22 @@ export function montarPlanoLucas(
       continue;
     }
 
-    if (!l.materialSap) { ignorar(l, 'Sem Material SAP'); continue; }
-    if (!materiaisValidos.has(l.materialSap)) { ignorar(l, `Material ${l.materialSap} não cadastrado`); continue; }
-    if (!l.matricula) { ignorar(l, 'Sem matrícula'); continue; }
-    if (!matriculasValidas.has(l.matricula)) { ignorar(l, `Matrícula ${l.matricula} não cadastrada`); continue; }
-    if (!l.data) { ignorar(l, 'Data de atribuição inválida'); continue; }
-    if (!l.status) { ignorar(l, 'Status diferente de Concluído/Pendente'); continue; }
+    if (!l.matricula) { bloquear(l, 'Sem matrícula'); continue; }
+    if (!matriculasValidas.has(l.matricula)) { bloquear(l, `Matrícula ${l.matricula} não cadastrada — cadastre o colaborador e reimporte`); continue; }
+    if (!l.data) { bloquear(l, 'Data de atribuição inválida'); continue; }
+    if (!l.status) { bloquear(l, 'Status diferente de Concluído/Pendente'); continue; }
 
-    const partes = [`${l.matricula} · atribuído em ${formatBR(l.data)}`];
-    if (l.status === 'CONCLUIDO') {
-      partes.push(l.dataConclusao ? `concluído em ${formatBR(l.dataConclusao)}` : 'concluído (sem data)');
-      if (l.servicoGdis) partes.push(`serviço ${l.servicoGdis}`);
-    } else {
-      partes.push('pendente');
+    if (!l.materialSap || !materiaisValidos.has(l.materialSap)) {
+      plano.revisao.push({
+        tipo: 'MATERIAL',
+        serial: l.serial,
+        detail: `${l.materialSap ? `Material ${l.materialSap} não cadastrado` : 'Sem Material SAP'} · ${l.matricula} · atribuído em ${formatBR(l.data)} (${onde(l)})`,
+        linha: l,
+      });
+      continue;
     }
 
-    plano.novos.push({
-      acao: 'NOVO',
-      serial: l.serial,
-      data: l.data,
-      material_sap: l.materialSap,
-      matricula: l.matricula,
-      status: l.status,
-      data_conclusao: l.dataConclusao,
-      servico_gdis: l.servicoGdis,
-      servico_campo: l.servicoCampo,
-      equipe: l.equipe,
-      detail: partes.join(' · '),
-    });
+    plano.novos.push(novoDeLinha(l, l.materialSap));
   }
 
   return plano;

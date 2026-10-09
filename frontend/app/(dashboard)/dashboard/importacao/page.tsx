@@ -33,9 +33,9 @@ import {
   importarPlanilhaLucas,
 } from "../../../../lib/api";
 import type { MedidorParaSync, MedidorParaPC, ResultadoPC, MatriculaNaoCadastrada, ResultadoLucas } from "../../../../lib/api";
-import { parsePlanilhaLucas, montarPlanoLucas } from "../../../../lib/planilhaLucas";
-import type { ParseLucasResult, PlanoLucas, ItemLucas } from "../../../../lib/planilhaLucas";
-import type { Colaborador, Role } from "../../../../lib/supabase";
+import { parsePlanilhaLucas, montarPlanoLucas, novoDeLinha } from "../../../../lib/planilhaLucas";
+import type { ParseLucasResult, PlanoLucas, ItemLucas, ItemRevisao } from "../../../../lib/planilhaLucas";
+import type { Colaborador, Role, TipoMedidor } from "../../../../lib/supabase";
 import { canForcarImportacao } from "../../../../lib/permissions";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1470,6 +1470,152 @@ function PlanilhaVinculacaoTab({ formato }: { formato: FormatoVinculacao }) {
 // a atribuição genérica de 05/08/2026. No resto, o TraceOne prevalece.
 // ═══════════════════════════════════════════════════════════════════
 
+/** Escolha do usuário para um item da revisão. */
+interface EscolhaRevisao {
+  marcado: boolean;
+  trocarMatricula?: boolean;   // MATRICULA: false = só a data
+  material?: string;           // MATERIAL: cod_sap escolhido
+}
+
+/** Pode ser aplicado com a escolha atual? */
+function revisaoAplicavel(item: ItemRevisao, e: EscolhaRevisao | undefined): boolean {
+  if (!e?.marcado) return false;
+  if (item.tipo === "MATRICULA") return !e.trocarMatricula || item.matriculaPlanilhaValida;
+  if (item.tipo === "MATERIAL") return !!e.material;
+  return false;
+}
+
+/** Converte os itens marcados da revisão em itens para o RPC. */
+function itensDaRevisao(revisao: ItemRevisao[], escolhas: Record<string, EscolhaRevisao>): ItemLucas[] {
+  const itens: ItemLucas[] = [];
+  for (const item of revisao) {
+    const e = escolhas[item.serial];
+    if (!e || !revisaoAplicavel(item, e)) continue;
+    if (item.tipo === "MATERIAL") {
+      const n = novoDeLinha(item.linha, e.material!);
+      itens.push({
+        acao: n.acao, serial: n.serial, data: n.data, material_sap: n.material_sap,
+        matricula: n.matricula, status: n.status, data_conclusao: n.data_conclusao,
+        servico_gdis: n.servico_gdis, servico_campo: n.servico_campo, equipe: n.equipe,
+      });
+    } else if (item.tipo === "MATRICULA") {
+      itens.push(e.trocarMatricula
+        ? { acao: "DATA", medidor_id: item.medidorId, data: item.data, matricula: item.matriculaPlanilha, matricula_atual: item.matriculaTraceone }
+        : { acao: "DATA", medidor_id: item.medidorId, data: item.data });
+    }
+  }
+  return itens;
+}
+
+/**
+ * Lista do que não entra sozinho. Cada linha só é aplicada se marcada; as de
+ * matrícula divergente escolhem se trocam a matrícula, as sem material
+ * escolhem o material.
+ */
+function RevisaoLucas({
+  itens, escolhas, onChange, tipos, editavel,
+}: {
+  itens: ItemRevisao[];
+  escolhas: Record<string, EscolhaRevisao>;
+  onChange: (serial: string, e: EscolhaRevisao) => void;
+  tipos: TipoMedidor[];
+  editavel: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  if (itens.length === 0) return null;
+
+  const marcados = itens.filter((i) => revisaoAplicavel(i, escolhas[i.serial])).length;
+  // "Marcar todos" só pega o que já pode ser aplicado sem mais escolha
+  const marcaveis = itens.filter((i) => i.tipo === "MATRICULA" || (i.tipo === "MATERIAL" && escolhas[i.serial]?.material));
+  const todosMarcados = marcaveis.length > 0 && marcaveis.every((i) => escolhas[i.serial]?.marcado);
+
+  return (
+    <div className="rounded-xl border overflow-hidden bg-slate-50 border-slate-200 text-slate-700">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-left"
+      >
+        <span className="text-sm font-bold">
+          Revisar não aplicados <span className="font-black">({itens.length})</span>
+          {marcados > 0 && (
+            <span className="ml-2 text-xs font-semibold text-sky-700">
+              {marcados} marcado{marcados !== 1 ? "s" : ""} para aplicar
+            </span>
+          )}
+        </span>
+        {open ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+      </button>
+      {open && (
+        <div className="border-t border-slate-200">
+          {editavel && marcaveis.length > 0 && (
+            <div className="px-4 py-2 flex items-center justify-between bg-white border-b border-slate-200">
+              <span className="text-xs text-slate-500">Nada aqui é aplicado sem você marcar.</span>
+              <button
+                onClick={() => marcaveis.forEach((i) => onChange(i.serial, { ...escolhas[i.serial], marcado: !todosMarcados }))}
+                className="text-xs font-semibold text-sky-700 hover:text-sky-900"
+              >
+                {todosMarcados ? "Desmarcar todos" : "Marcar todos"}
+              </button>
+            </div>
+          )}
+          <div className="max-h-96 overflow-y-auto divide-y divide-slate-200">
+            {itens.map((item) => {
+              const e = escolhas[item.serial] ?? { marcado: false };
+              const bloqueado = item.tipo === "BLOQUEADO";
+              const semMaterial = item.tipo === "MATERIAL" && !e.material;
+              return (
+                <div key={item.serial} className={`px-4 py-2.5 text-xs flex gap-3 ${bloqueado ? "opacity-60" : ""}`}>
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 shrink-0 accent-sky-600"
+                    checked={e.marcado}
+                    disabled={!editavel || bloqueado || semMaterial}
+                    title={bloqueado ? "Não dá para aplicar por aqui" : semMaterial ? "Escolha o material primeiro" : undefined}
+                    onChange={(ev) => onChange(item.serial, { ...e, marcado: ev.target.checked })}
+                  />
+                  <div className="flex-1 min-w-0 space-y-1.5">
+                    <div className="flex gap-3">
+                      <span className="font-codigo font-semibold shrink-0">{item.serial}</span>
+                      <span className="opacity-70">{item.detail}</span>
+                    </div>
+                    {item.tipo === "MATRICULA" && (
+                      <select
+                        className="w-full max-w-sm px-2 py-1 border border-slate-300 rounded-lg bg-white text-xs disabled:opacity-50"
+                        disabled={!editavel}
+                        value={e.trocarMatricula ? "matricula" : "data"}
+                        onChange={(ev) => onChange(item.serial, { ...e, trocarMatricula: ev.target.value === "matricula", marcado: true })}
+                      >
+                        <option value="data">Só corrigir a data (mantém {item.matriculaTraceone})</option>
+                        <option value="matricula" disabled={!item.matriculaPlanilhaValida}>
+                          Data + matrícula da planilha ({item.matriculaPlanilha}
+                          {item.matriculaPlanilhaValida ? "" : " — não cadastrada"})
+                        </option>
+                      </select>
+                    )}
+                    {item.tipo === "MATERIAL" && (
+                      <select
+                        className="w-full max-w-sm px-2 py-1 border border-slate-300 rounded-lg bg-white text-xs disabled:opacity-50"
+                        disabled={!editavel}
+                        value={e.material ?? ""}
+                        onChange={(ev) => onChange(item.serial, { ...e, material: ev.target.value || undefined, marcado: !!ev.target.value })}
+                      >
+                        <option value="">Escolha o material para incluir…</option>
+                        {tipos.map((t) => (
+                          <option key={t.cod_sap} value={String(t.cod_sap)}>{t.cod_sap} — {t.tipo}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function PlanilhaLucasTab() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
@@ -1477,18 +1623,20 @@ function PlanilhaLucasTab() {
   const [stage, setStage] = useState<PCStage>("idle");
   const [parseInfo, setParseInfo] = useState<ParseLucasResult | null>(null);
   const [plano, setPlano] = useState<PlanoLucas | null>(null);
+  const [tipos, setTipos] = useState<TipoMedidor[]>([]);
+  const [escolhas, setEscolhas] = useState<Record<string, EscolhaRevisao>>({});
   const [resultado, setResultado] = useState<ResultadoLucas | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
 
   const reset = () => {
-    setFile(null); setStage("idle"); setParseInfo(null); setPlano(null);
+    setFile(null); setStage("idle"); setParseInfo(null); setPlano(null); setEscolhas({});
     setResultado(null); setErrorMsg(null); setProgress("");
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
   const processFile = useCallback(async (f: File) => {
-    setFile(f); setStage("parsing"); setPlano(null); setErrorMsg(null); setResultado(null);
+    setFile(f); setStage("parsing"); setPlano(null); setEscolhas({}); setErrorMsg(null); setResultado(null);
     setProgress("Lendo a planilha… (pode levar uns 20 segundos)");
     // deixa o spinner pintar antes do parse, que trava a thread
     await new Promise((r) => setTimeout(r, 50));
@@ -1516,6 +1664,7 @@ function PlanilhaLucasTab() {
         getTiposMedidores(false),
       ]);
       setProgress("Cruzando os seriais…");
+      setTipos([...tipos].sort((a, b) => String(a.cod_sap).localeCompare(String(b.cod_sap))));
       setPlano(montarPlanoLucas(
         info.linhas,
         medidores,
@@ -1530,7 +1679,8 @@ function PlanilhaLucasTab() {
     }
   }, []);
 
-  const totalAplicar = plano ? plano.novos.length + plano.datas.length : 0;
+  const revisaoAplicar = plano ? itensDaRevisao(plano.revisao, escolhas) : [];
+  const totalAplicar = plano ? plano.novos.length + plano.datas.length + revisaoAplicar.length : 0;
 
   const handleImport = async () => {
     if (!plano || totalAplicar === 0) return;
@@ -1543,7 +1693,9 @@ function PlanilhaLucasTab() {
         matricula: n.matricula, status: n.status, data_conclusao: n.data_conclusao,
         servico_gdis: n.servico_gdis, servico_campo: n.servico_campo, equipe: n.equipe,
       })),
+      ...revisaoAplicar.filter((i) => i.acao === "NOVO"),
       ...plano.datas.map(({ acao, medidor_id, data }) => ({ acao, medidor_id, data })),
+      ...revisaoAplicar.filter((i) => i.acao === "DATA"),
     ];
     try {
       const res = await importarPlanilhaLucas(itens, (feitos, total) =>
@@ -1677,11 +1829,12 @@ function PlanilhaLucasTab() {
               color="bg-amber-50 border-amber-200 text-amber-800"
               items={plano.datas}
             />
-            <CollapsibleList
-              title="Não aplicados — ficam como estão"
-              count={plano.ignorados.length}
-              color="bg-slate-50 border-slate-200 text-slate-700"
-              items={plano.ignorados}
+            <RevisaoLucas
+              itens={plano.revisao}
+              escolhas={escolhas}
+              onChange={(serial, e) => setEscolhas((prev) => ({ ...prev, [serial]: e }))}
+              tipos={tipos}
+              editavel={stage === "ready"}
             />
 
             <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">

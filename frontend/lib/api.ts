@@ -14,6 +14,7 @@ import type {
   MedidorCompleto,
   MatchCandidato,
 } from './supabase';
+import type { ItemLucas } from './planilhaLucas';
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
@@ -839,6 +840,44 @@ export async function importarPlanilhaPC(
     const r = data as ResultadoPC;
     total.servicos_criados += r?.servicos_criados ?? 0;
     total.medidores_atualizados += r?.medidores_atualizados ?? 0;
+    total.servicos_conferidos += r?.servicos_conferidos ?? 0;
+    onProgress?.(Math.min(i + BATCH, itens.length), itens.length);
+  }
+  return total;
+}
+
+// ─── Planilha Lucas ───────────────────────────────────────────────────────────
+
+export interface ResultadoLucas {
+  medidores_criados: number;
+  datas_corrigidas: number;
+  servicos_criados: number;
+  servicos_conferidos: number;
+}
+
+/**
+ * Aplica o plano em lotes. O RPC reconfere no banco se o serial ainda não
+ * existe e se a data ainda é a genérica, então reenviar não duplica nada.
+ */
+export async function importarPlanilhaLucas(
+  itens: ItemLucas[],
+  onProgress?: (feitos: number, total: number) => void
+): Promise<ResultadoLucas> {
+  const total: ResultadoLucas = {
+    medidores_criados: 0,
+    datas_corrigidas: 0,
+    servicos_criados: 0,
+    servicos_conferidos: 0,
+  };
+  const BATCH = 500;
+  for (let i = 0; i < itens.length; i += BATCH) {
+    const lote = itens.slice(i, i + BATCH);
+    const { data, error } = await supabase.rpc('importar_planilha_lucas', { p_itens: lote });
+    if (error) throw new Error(error.message);
+    const r = data as ResultadoLucas;
+    total.medidores_criados += r?.medidores_criados ?? 0;
+    total.datas_corrigidas += r?.datas_corrigidas ?? 0;
+    total.servicos_criados += r?.servicos_criados ?? 0;
     total.servicos_conferidos += r?.servicos_conferidos ?? 0;
     onProgress?.(Math.min(i + BATCH, itens.length), itens.length);
   }

@@ -29,8 +29,12 @@ import {
   getColaboradores,
   getMedidoresParaPC,
   importarPlanilhaPC,
+  getTiposMedidores,
+  importarPlanilhaLucas,
 } from "../../../../lib/api";
-import type { MedidorParaSync, MedidorParaPC, ResultadoPC, MatriculaNaoCadastrada } from "../../../../lib/api";
+import type { MedidorParaSync, MedidorParaPC, ResultadoPC, MatriculaNaoCadastrada, ResultadoLucas } from "../../../../lib/api";
+import { parsePlanilhaLucas, montarPlanoLucas } from "../../../../lib/planilhaLucas";
+import type { ParseLucasResult, PlanoLucas, ItemLucas } from "../../../../lib/planilhaLucas";
 import type { Colaborador, Role } from "../../../../lib/supabase";
 import { canForcarImportacao } from "../../../../lib/permissions";
 
@@ -1461,10 +1465,273 @@ function PlanilhaVinculacaoTab({ formato }: { formato: FormatoVinculacao }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
+// ABA PLANILHA LUCAS
+// Controle antigo de atribuições: insere os medidores que faltam e troca
+// a atribuição genérica de 05/08/2026. No resto, o TraceOne prevalece.
+// ═══════════════════════════════════════════════════════════════════
+
+function PlanilhaLucasTab() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [file, setFile] = useState<File | null>(null);
+  const [stage, setStage] = useState<PCStage>("idle");
+  const [parseInfo, setParseInfo] = useState<ParseLucasResult | null>(null);
+  const [plano, setPlano] = useState<PlanoLucas | null>(null);
+  const [resultado, setResultado] = useState<ResultadoLucas | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [progress, setProgress] = useState("");
+
+  const reset = () => {
+    setFile(null); setStage("idle"); setParseInfo(null); setPlano(null);
+    setResultado(null); setErrorMsg(null); setProgress("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const processFile = useCallback(async (f: File) => {
+    setFile(f); setStage("parsing"); setPlano(null); setErrorMsg(null); setResultado(null);
+    setProgress("Lendo a planilha… (pode levar uns 20 segundos)");
+    // deixa o spinner pintar antes do parse, que trava a thread
+    await new Promise((r) => setTimeout(r, 50));
+
+    let info: ParseLucasResult;
+    try {
+      info = parsePlanilhaLucas(await f.arrayBuffer());
+    } catch {
+      setStage("error");
+      setErrorMsg("Falha ao ler o arquivo. Verifique se é um Excel/CSV válido.");
+      return;
+    }
+    setParseInfo(info);
+    if (info.erro) {
+      setStage("error");
+      setErrorMsg(info.erro);
+      return;
+    }
+
+    setProgress("Buscando o cadastro no banco de dados…");
+    try {
+      const [medidores, colaboradores, tipos] = await Promise.all([
+        getMedidoresParaSync(),
+        getColaboradores(),
+        getTiposMedidores(false),
+      ]);
+      setProgress("Cruzando os seriais…");
+      setPlano(montarPlanoLucas(
+        info.linhas,
+        medidores,
+        new Set(colaboradores.map((c) => c.matricula.toLowerCase())),
+        new Set(tipos.map((t) => String(t.cod_sap))),
+      ));
+      setStage("ready");
+      setProgress("");
+    } catch (err) {
+      setStage("error");
+      setErrorMsg(err instanceof Error ? err.message : "Erro ao buscar o cadastro.");
+    }
+  }, []);
+
+  const totalAplicar = plano ? plano.novos.length + plano.datas.length : 0;
+
+  const handleImport = async () => {
+    if (!plano || totalAplicar === 0) return;
+    setStage("importing");
+    setProgress(`Aplicando 0 de ${totalAplicar}…`);
+    // novos primeiro: se algo falhar no meio, o que mais importa já entrou
+    const itens: ItemLucas[] = [
+      ...plano.novos.map((n) => ({
+        acao: n.acao, serial: n.serial, data: n.data, material_sap: n.material_sap,
+        matricula: n.matricula, status: n.status, data_conclusao: n.data_conclusao,
+        servico_gdis: n.servico_gdis, servico_campo: n.servico_campo, equipe: n.equipe,
+      })),
+      ...plano.datas.map(({ acao, medidor_id, data }) => ({ acao, medidor_id, data })),
+    ];
+    try {
+      const res = await importarPlanilhaLucas(itens, (feitos, total) =>
+        setProgress(`Aplicando ${feitos} de ${total}…`)
+      );
+      setResultado(res);
+      setStage("done");
+    } catch (err) {
+      setStage("error");
+      setErrorMsg(err instanceof Error ? err.message : "Erro ao importar.");
+    } finally {
+      setProgress("");
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      {stage === "error" && errorMsg && (
+        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-xl text-red-800">
+          <AlertTriangle size={20} className="text-red-500 shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-bold">Erro</p>
+            <p className="text-xs text-red-600 mt-0.5">{errorMsg}</p>
+          </div>
+          <button onClick={reset} className="text-red-400 hover:text-red-600"><X size={16} /></button>
+        </div>
+      )}
+
+      {stage === "done" && resultado && (
+        <div className="flex items-center gap-3 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800">
+          <CheckCircle2 size={20} className="text-emerald-600 shrink-0" />
+          <div className="flex-1">
+            <p className="text-sm font-bold">Importação concluída!</p>
+            <p className="text-xs text-emerald-600 mt-0.5">
+              {resultado.medidores_criados} medidor{resultado.medidores_criados !== 1 ? "es" : ""} incluído
+              {resultado.medidores_criados !== 1 ? "s" : ""} · {resultado.datas_corrigidas} data
+              {resultado.datas_corrigidas !== 1 ? "s" : ""} corrigida{resultado.datas_corrigidas !== 1 ? "s" : ""} · {resultado.servicos_criados} serviço
+              {resultado.servicos_criados !== 1 ? "s" : ""} criado{resultado.servicos_criados !== 1 ? "s" : ""}
+            </p>
+          </div>
+          <button onClick={reset} className="text-emerald-600 hover:text-emerald-800 text-xs font-semibold flex items-center gap-1">
+            <RefreshCw size={13} /> Nova importação
+          </button>
+        </div>
+      )}
+
+      {stage === "idle" && (
+        <>
+          <div
+            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) processFile(f); }}
+            onClick={() => fileInputRef.current?.click()}
+            className={`flex flex-col items-center justify-center gap-4 p-12 border-2 border-dashed rounded-2xl cursor-pointer transition-all ${dragging ? "border-sky-500 bg-sky-50" : "border-slate-300 bg-slate-50 hover:border-sky-400 hover:bg-sky-50/50"}`}
+          >
+            <div className="w-14 h-14 rounded-2xl bg-sky-100 flex items-center justify-center">
+              <UploadCloud size={28} className="text-sky-600" />
+            </div>
+            <div className="text-center">
+              <p className="text-sm font-bold text-slate-800">Arraste a Planilha Lucas aqui ou clique</p>
+              <p className="text-xs text-slate-500 mt-1">Suporte: .xlsx, .xls, .csv · lê todas as abas</p>
+            </div>
+            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) processFile(f); }} />
+          </div>
+
+          <div className="p-4 border rounded-xl bg-sky-50 border-sky-200">
+            <p className="text-xs font-semibold mb-2 text-sky-900">Como funciona?</p>
+            <ul className="text-xs space-y-1 text-sky-800">
+              <li>• A Planilha Lucas é o controle antigo de atribuições. O sistema cruza cada <strong>Serial</strong> com o cadastro</li>
+              <li>• Serial que não está no TraceOne é <strong>incluído</strong> com atribuição, matrícula, material, status, conclusão e serviço GDIS da planilha</li>
+              <li>• Serial que já está no TraceOne <strong>não é alterado</strong> — o TraceOne prevalece em matrícula, status, conclusão e serviço</li>
+              <li>• Única exceção: se a atribuição no TraceOne for <strong>05/08/2026</strong> (data genérica da importação histórica) e a matrícula bater, a data é trocada pela da planilha</li>
+              <li>• Reimportar o mesmo arquivo é seguro: nada é duplicado</li>
+            </ul>
+          </div>
+        </>
+      )}
+
+      {(stage === "parsing" || stage === "importing") && (
+        <div className="flex flex-col items-center justify-center gap-3 p-12 bg-slate-50 border border-slate-200 rounded-2xl">
+          <Loader2 size={32} className="animate-spin text-sky-500" />
+          <p className="text-sm font-semibold text-slate-600">{progress || "Processando…"}</p>
+        </div>
+      )}
+
+      {(stage === "ready" || stage === "done") && file && plano && parseInfo && (
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+          <div className="flex items-center gap-3 p-4 border-b border-slate-100 bg-slate-50/50">
+            <div className="w-10 h-10 rounded-xl bg-sky-100 flex items-center justify-center shrink-0">
+              <FileText size={18} className="text-sky-600" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-slate-900 truncate">{file.name}</p>
+              <p className="text-xs text-slate-500">
+                {parseInfo.linhas.length.toLocaleString("pt-BR")} seriais · abas {parseInfo.abasLidas.join(", ")}
+              </p>
+            </div>
+            {stage === "ready" && (
+              <button onClick={reset} className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><X size={16} /></button>
+            )}
+          </div>
+
+          <div className="p-4 space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                <UploadCloud size={16} className="text-emerald-500 mx-auto mb-1" />
+                <p className="text-2xl font-black text-emerald-700">{plano.novos.length.toLocaleString("pt-BR")}</p>
+                <p className="text-xs font-semibold text-emerald-600 mt-0.5">Medidores novos</p>
+              </div>
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-center">
+                <GitCompare size={16} className="text-amber-500 mx-auto mb-1" />
+                <p className="text-2xl font-black text-amber-700">{plano.datas.length.toLocaleString("pt-BR")}</p>
+                <p className="text-xs font-semibold text-amber-600 mt-0.5">Datas corrigidas</p>
+              </div>
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-center">
+                <CheckCircle2 size={16} className="text-slate-400 mx-auto mb-1" />
+                <p className="text-2xl font-black text-slate-500">{plano.inalterados.toLocaleString("pt-BR")}</p>
+                <p className="text-xs font-semibold text-slate-400 mt-0.5">Sem mudança</p>
+              </div>
+            </div>
+
+            <CollapsibleList
+              title="Medidores novos — não estão no TraceOne e serão incluídos"
+              count={plano.novos.length}
+              color="bg-emerald-50 border-emerald-200 text-emerald-800"
+              items={plano.novos}
+            />
+            <CollapsibleList
+              title="Datas corrigidas — atribuição 05/08/2026 trocada pela da planilha"
+              count={plano.datas.length}
+              color="bg-amber-50 border-amber-200 text-amber-800"
+              items={plano.datas}
+            />
+            <CollapsibleList
+              title="Não aplicados — ficam como estão"
+              count={plano.ignorados.length}
+              color="bg-slate-50 border-slate-200 text-slate-700"
+              items={plano.ignorados}
+            />
+
+            <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+              <AlertTriangle size={13} className="shrink-0 mt-0.5 text-slate-400" />
+              <span className="text-xs text-slate-600">
+                Medidores excluídos de propósito (devolvidos, duplicados) não deixam rastro no banco. Se algum
+                serial da lista de novos foi excluído por um motivo, ele volta — confira a lista antes de importar.
+              </span>
+            </div>
+
+            {parseInfo.repetidas > 0 && (
+              <p className="text-xs text-slate-500 px-1">
+                {parseInfo.repetidas.toLocaleString("pt-BR")} linhas repetiam um serial de outra aba ou linha e foram lidas uma vez só.
+              </p>
+            )}
+
+            {totalAplicar === 0 && stage === "ready" && (
+              <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
+                <CheckCircle2 size={20} className="text-emerald-500 mx-auto mb-1" />
+                <p className="text-sm font-semibold text-emerald-700">Nada a aplicar — o TraceOne já tem tudo o que a planilha traz.</p>
+              </div>
+            )}
+
+            {stage === "ready" && (
+              <div className="flex gap-3 pt-1">
+                <button onClick={reset} className="flex-1 px-4 py-2.5 border border-slate-300 text-slate-700 font-semibold text-sm rounded-xl hover:bg-slate-100 transition-colors">
+                  Cancelar
+                </button>
+                <button
+                  onClick={handleImport}
+                  disabled={totalAplicar === 0}
+                  className="flex-1 px-4 py-2.5 bg-[#1e3a5f] text-white font-bold text-sm rounded-xl hover:bg-[#2d5282] transition-colors disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-sm"
+                >
+                  <UploadCloud size={16} />
+                  Aplicar {totalAplicar.toLocaleString("pt-BR")} alteraç{totalAplicar !== 1 ? "ões" : "ão"}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════
 // PÁGINA PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════
 
-type Tab = "gdis" | "atribuicoes" | "pc" | "tc";
+type Tab = "gdis" | "atribuicoes" | "pc" | "tc" | "lucas";
 
 export default function ImportacaoPage() {
   const [activeTab, setActiveTab] = useState<Tab>("gdis");
@@ -1474,7 +1741,7 @@ export default function ImportacaoPage() {
       {/* Header */}
       <div>
         <h2 className="text-xl font-bold text-tinta">Importar</h2>
-        <p className="text-sm text-aco mt-0.5">Importe relatórios GDIS, sincronize a planilha de atribuições SAP ou vincule serviços pelas planilhas PC e TC.</p>
+        <p className="text-sm text-aco mt-0.5">Importe relatórios GDIS, sincronize a planilha de atribuições SAP, vincule serviços pelas planilhas PC e TC ou recupere atribuições antigas pela Planilha Lucas.</p>
       </div>
 
       {/* Tabs */}
@@ -1484,6 +1751,7 @@ export default function ImportacaoPage() {
           ["atribuicoes", "Atribuições"],
           ["pc", "Planilha PC"],
           ["tc", "Planilha TC"],
+          ["lucas", "Planilha Lucas"],
         ] as [Tab, string][]).map(([key, label]) => (
           <button
             key={key}
@@ -1506,8 +1774,10 @@ export default function ImportacaoPage() {
         <AtribuicoesTab />
       ) : activeTab === "pc" ? (
         <PlanilhaVinculacaoTab formato={FORMATO_PC} />
-      ) : (
+      ) : activeTab === "tc" ? (
         <PlanilhaVinculacaoTab formato={FORMATO_TC} />
+      ) : (
+        <PlanilhaLucasTab />
       )}
     </div>
   );

@@ -140,6 +140,9 @@ export interface SortConfig {
   ascending: boolean;
 }
 
+// Supervisores de fora da equipe: aparecem em colaboradores, mas não têm medidores.
+const SUPERVISORES_OCULTOS = new Set(['daniel', 'aecio']);
+
 export async function getSupervisores(): Promise<string[]> {
   const { data, error } = await supabase
     .from('colaboradores')
@@ -148,7 +151,7 @@ export async function getSupervisores(): Promise<string[]> {
     .order('supervisor');
   if (error) throw new Error(error.message);
   const unique = [...new Set((data ?? []).map((d: { supervisor: string }) => d.supervisor).filter(Boolean))];
-  return unique as string[];
+  return (unique as string[]).filter(s => !SUPERVISORES_OCULTOS.has(s.toLowerCase()));
 }
 
 export async function getMedidoresCompleto(filters?: {

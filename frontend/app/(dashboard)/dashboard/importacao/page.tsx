@@ -36,7 +36,8 @@ import type { MedidorParaSync, MedidorParaPC, ResultadoPC, MatriculaNaoCadastrad
 import { parsePlanilhaLucas, montarPlanoLucas, novoDeLinha } from "../../../../lib/planilhaLucas";
 import type { ParseLucasResult, PlanoLucas, ItemLucas, ItemRevisao } from "../../../../lib/planilhaLucas";
 import type { Colaborador, Role, TipoMedidor } from "../../../../lib/supabase";
-import { canForcarImportacao } from "../../../../lib/permissions";
+import { canForcarImportacao, canVincularServico } from "../../../../lib/permissions";
+import { usePapel } from "../../../../lib/usePapel";
 
 // ═══════════════════════════════════════════════════════════════════
 // SEÇÃO GDIS — tipos e lógica
@@ -1886,8 +1887,31 @@ function PlanilhaLucasTab() {
 
 type Tab = "gdis" | "atribuicoes" | "pc" | "tc" | "lucas";
 
+// GDIS, PC, TC e Lucas gravam número de serviço: só para quem vincula.
+// Atribuições só mexe em matrícula/material/data (reatribuição).
+const TABS: { key: Tab; label: string; vinculo: boolean }[] = [
+  { key: "gdis", label: "Relatório GDIS", vinculo: true },
+  { key: "atribuicoes", label: "Atribuições", vinculo: false },
+  { key: "pc", label: "Planilha PC", vinculo: true },
+  { key: "tc", label: "Planilha TC", vinculo: true },
+  { key: "lucas", label: "Planilha Lucas", vinculo: true },
+];
+
 export default function ImportacaoPage() {
-  const [activeTab, setActiveTab] = useState<Tab>("gdis");
+  const papel = usePapel();
+  const podeVincular = canVincularServico(papel);
+  const tabsVisiveis = TABS.filter((t) => podeVincular || !t.vinculo);
+  const [escolhida, setActiveTab] = useState<Tab | null>(null);
+  const activeTab: Tab | undefined =
+    tabsVisiveis.find((t) => t.key === escolhida)?.key ?? tabsVisiveis[0]?.key;
+
+  if (papel === undefined) {
+    return (
+      <div className="flex justify-center p-10">
+        <Loader2 className="animate-spin text-slate-400" size={20} />
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-2xl mx-auto space-y-6 p-6">
@@ -1899,13 +1923,7 @@ export default function ImportacaoPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-slate-100 rounded-xl">
-        {([
-          ["gdis", "Relatório GDIS"],
-          ["atribuicoes", "Atribuições"],
-          ["pc", "Planilha PC"],
-          ["tc", "Planilha TC"],
-          ["lucas", "Planilha Lucas"],
-        ] as [Tab, string][]).map(([key, label]) => (
+        {tabsVisiveis.map(({ key, label }) => (
           <button
             key={key}
             onClick={() => setActiveTab(key)}
@@ -1929,9 +1947,9 @@ export default function ImportacaoPage() {
         <PlanilhaVinculacaoTab formato={FORMATO_PC} />
       ) : activeTab === "tc" ? (
         <PlanilhaVinculacaoTab formato={FORMATO_TC} />
-      ) : (
+      ) : activeTab === "lucas" ? (
         <PlanilhaLucasTab />
-      )}
+      ) : null}
     </div>
   );
 }

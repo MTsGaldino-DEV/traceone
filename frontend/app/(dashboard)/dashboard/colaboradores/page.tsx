@@ -139,12 +139,8 @@ export default function ColaboradoresPage() {
       setNewForm(emptyForm);
       loadColaboradores();
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Erro ao cadastrar colaborador.";
-      setError(
-        msg.includes("duplicate key")
-          ? `Já existe um colaborador com a matrícula "${newMatricula.trim().toLowerCase()}".`
-          : msg
-      );
+      // o tradutor já nomeia a matrícula duplicada
+      setError(err instanceof Error ? err.message : "Erro ao cadastrar colaborador.");
     } finally {
       setCreating(false);
     }

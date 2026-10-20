@@ -13,6 +13,7 @@ import {
   Undo2,
   History,
   Trash2,
+  Replace,
 } from "lucide-react";
 import {
   getDuplicidadeMedidores,
@@ -21,6 +22,8 @@ import {
   reverterDuplicidadeRevisado,
   desvincularDuplicidadeMedidor,
   excluirMedidorDuplicado,
+  substituirSerialMedidor,
+  substituirServicoMedidor,
 } from "../../../../lib/api";
 import type {
   DuplicidadeMedidor,
@@ -28,6 +31,9 @@ import type {
   TipoDuplicidade,
 } from "../../../../lib/api";
 import { StatusMedidor } from "../../../../components/StatusMedidor";
+import { ErroSistema } from "../../../../lib/erros";
+import { canVincularServico } from "../../../../lib/permissions";
+import { usePapel } from "../../../../lib/usePapel";
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 interface ToastMsg {
@@ -44,7 +50,8 @@ function useToasts() {
   const addToast = useCallback((type: ToastMsg["type"], text: string) => {
     const id = ++toastCounter;
     setToasts((prev) => [...prev, { id, type, text }]);
-    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 4000);
+    // erro fica mais tempo: a descrição explica o que fazer
+    setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), type === "error" ? 9000 : 4000);
   }, []);
 
   return { toasts, addToast };
@@ -84,9 +91,13 @@ interface GrupoProps {
   onLinhaAlterada: () => void;
   onRevisado: (tipo: TipoDuplicidade, chave: string) => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
+  podeVincular: boolean;
 }
 
-function GrupoDuplicidade({ tipo, chave, medidores, onLinhaAlterada, onRevisado, addToast }: GrupoProps) {
+type CampoSubstituir = "serial" | "servico";
+
+function GrupoDuplicidade({ tipo, chave, medidores, onLinhaAlterada, onRevisado, addToast, podeVincular }: GrupoProps) {
+  const [substituindo, setSubstituindo] = useState<{ medidor: DuplicidadeMedidor; campo: CampoSubstituir } | null>(null);
   const [desvinculandoId, setDesvinculandoId] = useState<string | null>(null);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
   const [revisando, setRevisando] = useState(false);
@@ -181,7 +192,13 @@ function GrupoDuplicidade({ tipo, chave, medidores, onLinhaAlterada, onRevisado,
           </tr>
         </thead>
         <tbody>
-          {medidores.map((m) => (
+          {medidores.map((m) => {
+            // O banco só aceita uma linha PENDENTE por serial: se outra do grupo já
+            // está pendente, desvincular esta bateria no índice único.
+            const outraPendente = medidores.some(
+              (o) => o.id !== m.id && o.serial === m.serial && o.status === "PENDENTE"
+            );
+            return (
             <tr key={m.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
               <td className="px-4 py-2.5">
                 <span className="font-codigo text-sm font-bold text-slate-800">{m.serial}</span>
@@ -218,9 +235,35 @@ function GrupoDuplicidade({ tipo, chave, medidores, onLinhaAlterada, onRevisado,
                 <div className="flex items-center gap-1.5">
                   <button
                     type="button"
-                    onClick={() => handleDesvincular(m)}
+                    onClick={() => setSubstituindo({ medidor: m, campo: "serial" })}
                     disabled={desvinculandoId === m.id || excluindoId === m.id}
-                    title="Desvincular do serviço — a linha continua, volta para PENDENTE"
+                    title="Substituir o número do medidor (serial) desta linha"
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-sky-700 bg-sky-50 border border-sky-200 text-xs font-bold rounded-lg hover:bg-sky-100 transition-colors disabled:opacity-50"
+                  >
+                    <Replace size={13} />
+                    Nº medidor
+                  </button>
+                  {podeVincular && (
+                    <button
+                      type="button"
+                      onClick={() => setSubstituindo({ medidor: m, campo: "servico" })}
+                      disabled={desvinculandoId === m.id || excluindoId === m.id}
+                      title="Substituir o número do serviço GDIS desta linha"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 text-indigo-700 bg-indigo-50 border border-indigo-200 text-xs font-bold rounded-lg hover:bg-indigo-100 transition-colors disabled:opacity-50"
+                    >
+                      <Replace size={13} />
+                      Nº serviço
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleDesvincular(m)}
+                    disabled={desvinculandoId === m.id || excluindoId === m.id || outraPendente}
+                    title={
+                      outraPendente
+                        ? "Outra linha deste serial já está PENDENTE — exclua a linha sobrando em vez de desvincular"
+                        : "Desvincular do serviço — a linha continua, volta para PENDENTE"
+                    }
                     className="flex items-center gap-1.5 px-2.5 py-1.5 text-amber-700 bg-amber-50 border border-amber-200 text-xs font-bold rounded-lg hover:bg-amber-100 transition-colors disabled:opacity-50"
                   >
                     {desvinculandoId === m.id ? <Loader2 size={13} className="animate-spin" /> : <Unlink size={13} />}
@@ -241,9 +284,146 @@ function GrupoDuplicidade({ tipo, chave, medidores, onLinhaAlterada, onRevisado,
                 </div>
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
+
+      {substituindo && (
+        <ModalSubstituir
+          medidor={substituindo.medidor}
+          campo={substituindo.campo}
+          onFechar={() => setSubstituindo(null)}
+          onSalvo={(novo) => {
+            const { medidor, campo } = substituindo;
+            setSubstituindo(null);
+            addToast(
+              "success",
+              campo === "serial"
+                ? `Medidor ${medidor.serial} agora é ${novo}.`
+                : `Serial ${medidor.serial} agora está no serviço ${novo}.`
+            );
+            onLinhaAlterada();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Modal: substituir nº do medidor ou do serviço ───────────────────────────
+interface ModalSubstituirProps {
+  medidor: DuplicidadeMedidor;
+  campo: CampoSubstituir;
+  onFechar: () => void;
+  onSalvo: (novo: string) => void;
+}
+
+function ModalSubstituir({ medidor, campo, onFechar, onSalvo }: ModalSubstituirProps) {
+  const atual = campo === "serial" ? medidor.serial : medidor.servicoGdis ?? "";
+  const [valor, setValor] = useState(atual);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState<{ titulo: string; descricao: string } | null>(null);
+
+  const novo = valor.trim();
+  const podeSalvar = !!novo && novo !== atual && !salvando;
+
+  const salvar = async () => {
+    if (!podeSalvar) return;
+    setSalvando(true);
+    setErro(null);
+    try {
+      if (campo === "serial") await substituirSerialMedidor(medidor.id, novo);
+      else await substituirServicoMedidor(medidor.id, novo);
+      onSalvo(novo);
+    } catch (err) {
+      setErro(
+        err instanceof ErroSistema
+          ? { titulo: err.titulo, descricao: err.descricao }
+          : { titulo: "Erro ao salvar", descricao: err instanceof Error ? err.message : "" }
+      );
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4" onClick={onFechar}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900">
+              {campo === "serial" ? "Substituir número do medidor" : "Substituir número do serviço"}
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              {campo === "serial"
+                ? `Linha de ${medidor.colaborador || medidor.matricula}`
+                : `Serial ${medidor.serial} · ${medidor.colaborador || medidor.matricula}`}
+            </p>
+          </div>
+          <button onClick={onFechar} className="text-slate-400 hover:text-slate-700">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Atual</label>
+            <p className="font-codigo text-sm font-bold text-slate-700">
+              {atual || <span className="text-slate-300 font-sans font-normal">sem serviço</span>}
+            </p>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">
+              {campo === "serial" ? "Novo número do medidor" : "Novo número do serviço GDIS"}
+            </label>
+            <input
+              autoFocus
+              type="text"
+              value={valor}
+              onChange={(e) => {
+                setValor(e.target.value);
+                setErro(null);
+              }}
+              onKeyDown={(e) => e.key === "Enter" && salvar()}
+              className="w-full h-9 px-3 text-sm font-codigo font-semibold border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-sinal-claro"
+            />
+          </div>
+          <p className="text-[11px] text-slate-500 leading-snug">
+            {campo === "serial"
+              ? "Corrige o número desta linha. O serviço vinculado, se houver, passa a apontar para o número novo."
+              : "Se a linha estiver PENDENTE, ela vira CONCLUÍDA. O serviço antigo, se ficar sem medidor, volta para a Conferência."}
+          </p>
+
+          {erro && (
+            <div className="flex items-start gap-2 text-xs bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+              <AlertTriangle size={13} className="text-red-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold text-red-700">{erro.titulo}</p>
+                {erro.descricao && <p className="text-red-600 mt-0.5 leading-snug">{erro.descricao}</p>}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="flex justify-end gap-2 px-5 pb-5">
+          <button
+            type="button"
+            onClick={onFechar}
+            className="px-3 py-2 text-xs font-bold text-slate-600 rounded-lg hover:bg-slate-100"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={salvar}
+            disabled={!podeSalvar}
+            className="flex items-center gap-1.5 px-4 py-2 bg-[#1e3a5f] text-white text-xs font-bold rounded-lg hover:bg-[#2d5282] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {salvando && <Loader2 size={13} className="animate-spin" />}
+            Substituir
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -311,6 +491,7 @@ function RevisadoRow({ revisado, onRevertido, addToast }: RevisadoRowProps) {
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 export default function DuplicidadePage() {
+  const podeVincular = canVincularServico(usePapel());
   const [medidores, setMedidores] = useState<DuplicidadeMedidor[]>([]);
   const [revisados, setRevisados] = useState<DuplicidadeRevisado[]>([]);
   const [loading, setLoading] = useState(true);
@@ -473,6 +654,7 @@ export default function DuplicidadePage() {
                 onLinhaAlterada={handleLinhaAlterada}
                 onRevisado={handleRevisado}
                 addToast={addToast}
+                podeVincular={podeVincular}
               />
             ))}
           </div>

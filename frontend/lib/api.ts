@@ -15,12 +15,13 @@ import type {
   MatchCandidato,
 } from './supabase';
 import type { ItemLucas } from './planilhaLucas';
+import { traduzirErro } from './erros';
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 export async function login(email: string, password: string) {
   const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return data;
 }
 
@@ -43,7 +44,7 @@ export async function getProfile(): Promise<Profile | null> {
     .eq('id', user.id)
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return data as Profile;
 }
 
@@ -53,7 +54,7 @@ export async function getTiposMedidores(apenasAtivos = true): Promise<TipoMedido
   let query = supabase.from('tipos_de_medidores').select('*').order('tipo');
   if (apenasAtivos) query = query.eq('ativo', true);
   const { data, error } = await query;
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data ?? []) as TipoMedidor[];
 }
 
@@ -65,7 +66,7 @@ export async function createTipoMedidor(
     .insert(payload)
     .select()
     .single();
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return data as TipoMedidor;
 }
 
@@ -77,7 +78,7 @@ export async function getColaboradores(search?: string): Promise<Colaborador[]> 
     query = query.or(`matricula.ilike.%${search}%,nome.ilike.%${search}%`);
   }
   const { data, error } = await query;
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data ?? []) as Colaborador[];
 }
 
@@ -89,7 +90,7 @@ export async function createColaborador(
     .insert(payload)
     .select()
     .single();
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return data as Colaborador;
 }
 
@@ -103,7 +104,7 @@ export async function updateColaborador(
     .eq('matricula', matricula)
     .select()
     .single();
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return data as Colaborador;
 }
 
@@ -113,7 +114,7 @@ export async function countMedidoresDoColaborador(matricula: string): Promise<nu
     .from('medidores_list')
     .select('id', { count: 'exact', head: true })
     .eq('matricula', matricula);
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return count ?? 0;
 }
 
@@ -129,7 +130,7 @@ export async function deleteColaborador(matricula: string): Promise<void> {
         'Este colaborador possui medidores ou serviços vinculados e não pode ser excluído. Marque-o como inativo.'
       );
     }
-    throw new Error(error.message);
+    throw traduzirErro(error);
   }
 }
 
@@ -146,7 +147,7 @@ export async function getSupervisores(): Promise<string[]> {
     .select('supervisor')
     .not('supervisor', 'is', null)
     .order('supervisor');
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   const unique = [...new Set((data ?? []).map((d: { supervisor: string }) => d.supervisor).filter(Boolean))];
   return unique as string[];
 }
@@ -218,7 +219,7 @@ export async function getMedidoresCompleto(filters?: {
   }
 
   const { data, count, error } = await query;
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return { data: (data ?? []) as MedidorCompleto[], total: count ?? 0 };
 }
 
@@ -249,7 +250,7 @@ export async function createMedidor(
     .insert({ ...payload, status: 'PENDENTE' })
     .select()
     .single();
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return data as Medidor;
 }
 
@@ -261,7 +262,7 @@ export async function createMedidores(
     .from('medidores_list')
     .insert(rows)
     .select();
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data ?? []) as Medidor[];
 }
 
@@ -269,18 +270,6 @@ export type MedidorUpdatePayload = Partial<Omit<Medidor, 'servico_gdis' | 'data_
   servico_gdis?: string | null;
   data_conclusao?: string | null;
 };
-
-/** O número do serviço GDIS informado não existe em servicos_report (ainda não foi importado). */
-export class ServicoGdisInexistenteError extends Error {}
-
-function traduzirErroFkServicoGdis(error: { code?: string; message: string }, servicoGdis: string | null | undefined): Error {
-  if (error.code === '23503' && servicoGdis && error.message.includes('medidores_list_servico_gdis_fkey')) {
-    return new ServicoGdisInexistenteError(
-      `Serviço GDIS ${servicoGdis} não foi encontrado nos relatórios importados. Confira o número ou importe o relatório desse serviço antes de vincular.`
-    );
-  }
-  return new Error(error.message);
-}
 
 /**
  * Cria o serviço em servicos_report se ele ainda não existe (vínculo manual
@@ -291,7 +280,7 @@ async function garantirServicoReport(servico: string, serial?: string | null): P
     p_servico: servico,
     p_serial: serial ?? null,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 }
 
 export async function updateMedidor(id: string, payload: MedidorUpdatePayload): Promise<Medidor> {
@@ -304,7 +293,7 @@ export async function updateMedidor(id: string, payload: MedidorUpdatePayload): 
     .eq('id', id)
     .select()
     .single();
-  if (error) throw traduzirErroFkServicoGdis(error, payload.servico_gdis);
+  if (error) throw traduzirErro(error);
   return data as Medidor;
 }
 
@@ -324,7 +313,7 @@ export async function getMedidorLogs(medidorId: string): Promise<MedidorLog[]> {
     .select('*')
     .eq('medidor_id', medidorId)
     .order('created_at', { ascending: true });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data ?? []) as MedidorLog[];
 }
 
@@ -333,7 +322,7 @@ export async function deleteMedidor(id: string): Promise<void> {
     .from('medidores_list')
     .delete()
     .eq('id', id);
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 }
 
 // ─── Serviços Report ──────────────────────────────────────────────────────────
@@ -407,7 +396,7 @@ export async function importServicos(
       .from('colaboradores')
       .select('matricula')
       .in('matricula', distintas.slice(i, i + 200));
-    if (error) throw new Error(error.message);
+    if (error) throw traduzirErro(error);
     (data ?? []).forEach((c) => conhecidas.add((c as { matricula: string }).matricula));
   }
 
@@ -427,7 +416,7 @@ export async function importServicos(
   const { error } = await supabase
     .from('servicos_report')
     .upsert(payload, { onConflict: 'servico' });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 
   return { ok: true, imported: payload.length };
 }
@@ -443,7 +432,7 @@ export async function importServicosForcado(
   const { data, error } = await supabase.rpc('importar_servicos_forcado', {
     p_itens: payloadServicos(rows),
   });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return { imported: (data as number) ?? 0 };
 }
 
@@ -474,7 +463,7 @@ async function buscarServicosPorStatus<T>(
     ({ data, error, count } = await consultar(paginaEfetiva));
   }
 
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return { data: (data ?? []) as T[], total: count ?? 0, page: paginaEfetiva };
 }
 
@@ -504,7 +493,7 @@ export async function deleteServicoReport(servicoId: string): Promise<void> {
     .select('serial')
     .eq('servico_gdis', servicoId)
     .limit(1);
-  if (erroConsulta) throw new Error(erroConsulta.message);
+  if (erroConsulta) throw traduzirErro(erroConsulta);
 
   if (vinculados && vinculados.length > 0) {
     throw new ServicoVinculadoError(
@@ -520,7 +509,7 @@ export async function deleteServicoReport(servicoId: string): Promise<void> {
     if (error.code === '23503') {
       throw new ServicoVinculadoError('Este serviço foi vinculado a um medidor agora há pouco e não pode ser excluído.');
     }
-    throw new Error(error.message);
+    throw traduzirErro(error);
   }
 }
 
@@ -529,12 +518,12 @@ export async function reverterServicoPendente(servicoId: string): Promise<void> 
     .from('servicos_report')
     .update({ status_conferencia: 'PENDENTE', serial_buscado: null })
     .eq('servico', servicoId);
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 }
 
 export async function verificarVinculacoesPendentes(): Promise<number> {
   const { data, error } = await supabase.rpc('verificar_vinculacoes_pendentes');
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data as number) ?? 0;
 }
 
@@ -555,7 +544,7 @@ export async function vincularServicoMedidor(
     p_servico_id: servicoId,
     p_serial:     serial,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return data as VincularResult;
 }
 
@@ -563,7 +552,7 @@ export async function vincularServicoMedidor(
 
 export async function runMatchMedidores(): Promise<MatchCandidato[]> {
   const { data, error } = await supabase.rpc('match_medidores');
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data ?? []) as MatchCandidato[];
 }
 
@@ -630,7 +619,7 @@ export async function requestPasswordReset(email: string): Promise<void> {
   const { error } = await supabase.auth.resetPasswordForEmail(email, {
     redirectTo: `${window.location.origin}/reset-senha`,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 }
 
 // Troca da própria senha: reautentica com a senha atual antes de aplicar a nova.
@@ -645,7 +634,7 @@ export async function changeOwnPassword(currentPassword: string, newPassword: st
   if (reauthError) throw new Error('Senha atual incorreta');
 
   const { error } = await supabase.auth.updateUser({ password: newPassword });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 }
 
 // ─── Anti-Duplicidade / Reatribuição ─────────────────────────────────────────
@@ -670,7 +659,7 @@ export interface ReatribuicaoHistorico {
 
 export async function verificarMedidorAtribuido(serial: string): Promise<ConflictoInfo | null> {
   const { data, error } = await supabase.rpc('verificar_medidor_atribuido', { p_serial: serial });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   if (!data || data.length === 0) return null;
   return { serial, ...data[0] } as ConflictoInfo;
 }
@@ -685,7 +674,7 @@ export async function reatribuirMedidor(params: {
     p_nova_matricula: params.novaMatricula,
     p_sap_material_id: params.sapMaterialId,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return data as string;
 }
 
@@ -741,7 +730,7 @@ export async function getMedidoresParaSync(): Promise<MedidorParaSync[]> {
       .from('medidores_list')
       .select('id,serial,matricula,material_sap,data')
       .range(from, from + PAGE - 1);
-    if (error) throw new Error(error.message);
+    if (error) throw traduzirErro(error);
     result.push(...((data ?? []) as MedidorParaSync[]));
     if ((data ?? []).length < PAGE) break;
     from += PAGE;
@@ -758,7 +747,7 @@ export async function syncAtribuicoes(params: {
 
   for (const { id, patch } of params.updates) {
     const { error } = await supabase.from('medidores_list').update(patch).eq('id', id);
-    if (error) throw new Error(error.message);
+    if (error) throw traduzirErro(error);
     updated++;
   }
 
@@ -766,7 +755,7 @@ export async function syncAtribuicoes(params: {
   for (let i = 0; i < params.deletes.length; i += BATCH) {
     const batch = params.deletes.slice(i, i + BATCH);
     const { error } = await supabase.from('medidores_list').delete().in('id', batch);
-    if (error) throw new Error(error.message);
+    if (error) throw traduzirErro(error);
     deleted += batch.length;
   }
 
@@ -811,7 +800,7 @@ export async function getMedidoresParaPC(): Promise<MedidorParaPC[]> {
       .from('medidores_list')
       .select('id,serial,status,servico_gdis,data,data_conclusao,matricula')
       .range(from, from + PAGE - 1);
-    if (error) throw new Error(error.message);
+    if (error) throw traduzirErro(error);
     result.push(...((data ?? []) as MedidorParaPC[]));
     if ((data ?? []).length < PAGE) break;
     from += PAGE;
@@ -836,7 +825,7 @@ export async function importarPlanilhaPC(
   for (let i = 0; i < itens.length; i += BATCH) {
     const lote = itens.slice(i, i + BATCH);
     const { data, error } = await supabase.rpc('importar_planilha_pc', { p_itens: lote });
-    if (error) throw new Error(error.message);
+    if (error) throw traduzirErro(error);
     const r = data as ResultadoPC;
     total.servicos_criados += r?.servicos_criados ?? 0;
     total.medidores_atualizados += r?.medidores_atualizados ?? 0;
@@ -873,7 +862,7 @@ export async function importarPlanilhaLucas(
   for (let i = 0; i < itens.length; i += BATCH) {
     const lote = itens.slice(i, i + BATCH);
     const { data, error } = await supabase.rpc('importar_planilha_lucas', { p_itens: lote });
-    if (error) throw new Error(error.message);
+    if (error) throw traduzirErro(error);
     const r = data as ResultadoLucas;
     total.medidores_criados += r?.medidores_criados ?? 0;
     total.datas_corrigidas += r?.datas_corrigidas ?? 0;
@@ -942,7 +931,7 @@ export async function getMedidoresMetrics(filters?: MetricsFilters): Promise<Das
     p_material_sap_codes: filters?.materialSapCodes?.length ? filters.materialSapCodes : null,
     p_dias_min: filters?.diasMin ?? null,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 
   const m = (data as { metrics: Record<string, number>; ranking: RankingItem[] } | null);
   const met = m?.metrics ?? ({} as Record<string, number>);
@@ -1000,7 +989,7 @@ export async function getMedidoresConferencia45Dias(
     p_dias: diasLimite,
     p_serial: serial?.trim() || null,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   const r = data as { data: MedidorConferencia45Dias[]; total: number } | null;
   return { data: r?.data ?? [], total: r?.total ?? 0 };
 }
@@ -1012,7 +1001,7 @@ export async function getConferencia45DiasOcultos(
   const { data, error } = await supabase.rpc('get_conferencia_45dias_ocultos', {
     p_dias: diasLimite,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data ?? []) as MedidorConferencia45DiasOculto[];
 }
 
@@ -1020,7 +1009,7 @@ export async function ocultarMedidor45Dias(medidorId: string): Promise<void> {
   const { error } = await supabase
     .from('conferencia_45dias_ocultos')
     .upsert({ medidor_id: medidorId }, { onConflict: 'medidor_id' });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 }
 
 export async function reverterOcultarMedidor45Dias(medidorId: string): Promise<void> {
@@ -1028,7 +1017,7 @@ export async function reverterOcultarMedidor45Dias(medidorId: string): Promise<v
     .from('conferencia_45dias_ocultos')
     .delete()
     .eq('medidor_id', medidorId);
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 }
 
 export async function vincularServicoGdisMedidor(id: string, servicoGdis: string | null): Promise<void> {
@@ -1043,7 +1032,7 @@ export async function vincularServicoGdisMedidor(id: string, servicoGdis: string
       data_conclusao: new Date().toISOString().slice(0, 10),
     })
     .eq('id', id);
-  if (error) throw traduzirErroFkServicoGdis(error, servicoGdis);
+  if (error) throw traduzirErro(error);
 }
 
 // ─── Duplicidade: dois critérios ─────────────────────────────────────────────
@@ -1084,13 +1073,13 @@ export interface DuplicidadeRevisado {
 
 export async function getDuplicidadeMedidores(): Promise<DuplicidadeMedidor[]> {
   const { data, error } = await supabase.rpc('get_duplicidade_medidores');
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data ?? []) as DuplicidadeMedidor[];
 }
 
 export async function getDuplicidadeRevisados(): Promise<DuplicidadeRevisado[]> {
   const { data, error } = await supabase.rpc('get_duplicidade_revisados');
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data ?? []) as DuplicidadeRevisado[];
 }
 
@@ -1102,7 +1091,7 @@ export async function marcarDuplicidadeRevisado(
     p_tipo:  tipo,
     p_chave: chave,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 }
 
 export async function reverterDuplicidadeRevisado(
@@ -1114,7 +1103,7 @@ export async function reverterDuplicidadeRevisado(
     .delete()
     .eq('tipo', tipo)
     .eq('chave', chave);
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 }
 
 /**
@@ -1126,7 +1115,7 @@ export async function reverterDuplicidadeRevisado(
  */
 export async function excluirMedidorDuplicado(id: string): Promise<number> {
   const { data, error } = await supabase.rpc('excluir_medidor_duplicado', { p_id: id });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data as number) ?? 0;
 }
 
@@ -1147,10 +1136,39 @@ export async function desvincularDuplicidadeMedidor(id: string): Promise<void> {
       data_conclusao: null,
     })
     .eq('id', id);
-  if (error) throw new Error(error.message);
+  // Se outra linha do serial já está PENDENTE, o índice único recusa e o
+  // tradutor explica (SERIAL_JA_PENDENTE).
+  if (error) throw traduzirErro(error);
 }
 
-// ─── Recuperação do incidente: medidores com serial reconstruído (ADMIN) ──────
+/**
+ * Troca o número de série de uma linha (correção de digitação). Liberado para
+ * quem escreve. Recusa se o serial novo já estiver PENDENTE em outra linha.
+ */
+export async function substituirSerialMedidor(id: string, serial: string): Promise<void> {
+  const { error } = await supabase.rpc('substituir_serial_medidor', {
+    p_id: id,
+    p_serial: serial,
+  });
+  if (error) throw traduzirErro(error);
+}
+
+/**
+ * Troca (ou grava) o serviço GDIS de uma linha. Só ADMIN, GESTOR e
+ * ALMOXARIFADO_211. Linha PENDENTE vira CONCLUIDO; o serviço antigo, se ficou
+ * sem medidor, volta para a Conferência.
+ */
+export async function substituirServicoMedidor(id: string, servico: string): Promise<void> {
+  const { error } = await supabase.rpc('substituir_servico_medidor', {
+    p_id: id,
+    p_servico: servico,
+  });
+  if (error) throw traduzirErro(error);
+}
+
+// ─── Recuperação do incidente: medidores com serial reconstruído ─────────────
+// A aba Recuperação saiu; a Automação GDIS (ADMIN e GESTOR) ainda trata esses
+// itens.
 
 export interface RecuperacaoPendenteItem {
   medidorId: string;
@@ -1169,20 +1187,8 @@ export interface RecuperacaoPendenteItem {
 
 export async function getRecuperacaoPendente(): Promise<RecuperacaoPendenteItem[]> {
   const { data, error } = await supabase.rpc('get_recuperacao_pendente');
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data ?? []) as RecuperacaoPendenteItem[];
-}
-
-/** Checagem antes de gravar um serial digitado à mão na Recuperação. */
-export async function serialEmOutroMedidor(serial: string, medidorId: string): Promise<boolean> {
-  const { data, error } = await supabase
-    .from('medidores_list')
-    .select('id')
-    .eq('serial', serial)
-    .neq('id', medidorId)
-    .limit(1);
-  if (error) throw new Error(error.message);
-  return (data ?? []).length > 0;
 }
 
 /** Retorna true se o serial já existia em outra linha (grava mesmo assim). */
@@ -1191,8 +1197,69 @@ export async function resolverRecuperacaoPendente(medidorId: string, serialCorre
     p_medidor_id: medidorId,
     p_serial_correto: serialCorreto,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return !!data;
+}
+
+// ─── Log de auditoria (ADMIN e GESTOR) ───────────────────────────────────────
+
+export interface AuditoriaItem {
+  id: number;
+  criado_em: string;
+  usuario_id: string | null;
+  usuario_nome: string | null;
+  usuario_papel: string | null;
+  origem: 'USUARIO' | 'AUTOMATICO' | 'SISTEMA';
+  tabela: string | null;
+  operacao: 'INSERT' | 'UPDATE' | 'DELETE' | 'NEGADO';
+  evento: string;
+  registro_id: string | null;
+  chave: string | null;
+  antes: Record<string, unknown> | null;
+  depois: Record<string, unknown> | null;
+}
+
+export interface AuditoriaFiltros {
+  /** Serial, serviço, matrícula ou nome — busca parcial. */
+  busca?: string;
+  tabela?: string;
+  evento?: string;
+  usuarioId?: string;
+  /** yyyy-mm-dd, inclusive */
+  de?: string;
+  /** yyyy-mm-dd, inclusive */
+  ate?: string;
+}
+
+export async function getAuditoria(
+  filtros: AuditoriaFiltros,
+  page = 1,
+  pageSize = 50
+): Promise<{ data: AuditoriaItem[]; total: number }> {
+  const from = (page - 1) * pageSize;
+  let query = supabase
+    .from('auditoria_log')
+    .select('*', { count: 'exact' })
+    .order('criado_em', { ascending: false })
+    .order('id', { ascending: false })
+    .range(from, from + pageSize - 1);
+
+  const busca = filtros.busca?.trim().toLowerCase();
+  if (busca) {
+    // vírgula e parênteses quebram a sintaxe do filtro .or() do PostgREST
+    const termo = busca.replace(/[,()]/g, ' ');
+    query = query.or(`busca.ilike.%${termo}%,usuario_nome.ilike.%${termo}%`);
+  }
+  if (filtros.tabela) query = query.eq('tabela', filtros.tabela);
+  if (filtros.evento) query = query.eq('evento', filtros.evento);
+  if (filtros.usuarioId) query = query.eq('usuario_id', filtros.usuarioId);
+  // limites no fuso de quem está olhando, não em UTC
+  if (filtros.de) query = query.gte('criado_em', new Date(`${filtros.de}T00:00:00`).toISOString());
+  if (filtros.ate) query = query.lte('criado_em', new Date(`${filtros.ate}T23:59:59.999`).toISOString());
+
+  const { data, error, count } = await query;
+  if (error) throw traduzirErro(error);
+  return { data: (data ?? []) as AuditoriaItem[], total: count ?? 0 };
 }
 
 // ─── Serviços da Conferência pendentes de vínculo, para a Automação GDIS ──────
@@ -1215,7 +1282,7 @@ export async function getServicosConferenciaParaAutomacao(): Promise<ServicoConf
       .eq('status_conferencia', 'PENDENTE')
       .order('servico', { ascending: true })
       .range(from, from + PAGE - 1);
-    if (error) throw new Error(error.message);
+    if (error) throw traduzirErro(error);
     result.push(...((data ?? []) as ServicoConferenciaAutomacao[]));
     if ((data ?? []).length < PAGE) break;
     from += PAGE;
@@ -1298,12 +1365,12 @@ export async function registrarAutomacaoLog(entrada: AutomacaoLogEntrada): Promi
     },
     { onConflict: 'execucao_id,chave_item' }
   );
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
 }
 
 export async function getAutomacaoExecucoes(): Promise<AutomacaoExecucao[]> {
   const { data, error } = await supabase.rpc('get_automacao_execucoes');
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data ?? []) as AutomacaoExecucao[];
 }
 
@@ -1311,7 +1378,7 @@ export async function getAutomacaoExecucaoItens(execucaoId: string): Promise<Aut
   const { data, error } = await supabase.rpc('get_automacao_execucao_itens', {
     p_execucao_id: execucaoId,
   });
-  if (error) throw new Error(error.message);
+  if (error) throw traduzirErro(error);
   return (data ?? []) as AutomacaoExecucaoItem[];
 }
 
@@ -1358,7 +1425,7 @@ export async function getMedidoresAcima45Dias(
     }
 
     const { data, error } = await query;
-    if (error) throw new Error(error.message);
+    if (error) throw traduzirErro(error);
     for (const row of data ?? []) {
       rows.push({
         matricula: (row as any)['MATRICULA'] ?? '',
@@ -1395,6 +1462,7 @@ export const TABELAS_BACKUP: { tabela: string; ordem: string[] }[] = [
   { tabela: 'duplicidade_revisados', ordem: ['tipo', 'chave'] },
   { tabela: 'medidor_recuperacao_pendente', ordem: ['medidor_id'] },
   { tabela: 'automacao_gdis_log', ordem: ['id'] },
+  { tabela: 'auditoria_log', ordem: ['id'] },
 ];
 
 export interface BackupCompleto {
@@ -1414,7 +1482,7 @@ export async function gerarBackupCompleto(
       let query = supabase.from(tabela).select('*');
       for (const col of ordem) query = query.order(col, { ascending: true });
       const { data, error } = await query.range(from, from + PAGE - 1);
-      if (error) throw new Error(`${tabela}: ${error.message}`);
+      if (error) throw traduzirErro(error, `Backup da tabela ${tabela}`);
       linhas.push(...(data ?? []));
       onProgresso?.(tabela, linhas.length);
       if ((data ?? []).length < PAGE) break;

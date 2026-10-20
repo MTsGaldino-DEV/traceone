@@ -27,6 +27,7 @@ import {
   verificarMedidorAtribuido,
   reatribuirMedidor,
 } from "../../../../lib/api";
+import { ehErro } from "../../../../lib/erros";
 import type { ConflictoInfo } from "../../../../lib/api";
 import type { Colaborador, TipoMedidor } from "../../../../lib/supabase";
 
@@ -508,7 +509,7 @@ export default function LancamentoManualPage() {
       verifiedRef.current.clear();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("idx_medidor_serial_pendente_unico") || msg.includes("duplicate key")) {
+      if (ehErro(err, "SERIAL_JA_PENDENTE")) {
         setError("Um ou mais seriais já estão atribuídos e pendentes. Verifique os seriais destacados e resolva os conflitos antes de salvar.");
       } else {
         setError(msg || "Erro ao salvar lançamentos.");

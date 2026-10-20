@@ -12,7 +12,7 @@ import {
   Copy,
   Users,
   Contact,
-  ShieldAlert,
+  ScrollText,
   Bot,
   DatabaseBackup,
   LogOut,
@@ -23,15 +23,16 @@ import { Logo } from "../../components/Logo";
 import { supabase } from "../../lib/supabase";
 import type { Profile } from "../../lib/supabase";
 import { logout, changeOwnPassword } from "../../lib/api";
-import { canManageColaboradores, canManageUsers, canRecuperarDados, isAdmin, roleLabels } from "../../lib/permissions";
+import { canGestao, canManageColaboradores, canManageUsers, canVincularServico, roleLabels } from "../../lib/permissions";
 
+// vinculo: só aparece para quem vincula serviço (Conferência é só isso)
 const navItems = [
-  { label: "Lista de Medidores", href: "/dashboard", icon: LayoutDashboard, despachante: true },
-  { label: "Lançamento Manual", href: "/dashboard/lancamento", icon: PlusCircle, despachante: false },
-  { label: "Importar Relatório", href: "/dashboard/importacao", icon: UploadCloud, despachante: false },
-  { label: "Conferência", href: "/dashboard/conferencia", icon: CheckSquare, despachante: false },
-  { label: "Conferência +45 dias", href: "/dashboard/conferencia-45dias", icon: AlarmClockCheck, despachante: false },
-  { label: "Duplicidade", href: "/dashboard/duplicidade", icon: Copy, despachante: false },
+  { label: "Lista de Medidores", href: "/dashboard", icon: LayoutDashboard, despachante: true, vinculo: false },
+  { label: "Lançamento Manual", href: "/dashboard/lancamento", icon: PlusCircle, despachante: false, vinculo: false },
+  { label: "Importar Relatório", href: "/dashboard/importacao", icon: UploadCloud, despachante: false, vinculo: false },
+  { label: "Conferência", href: "/dashboard/conferencia", icon: CheckSquare, despachante: false, vinculo: true },
+  { label: "Conferência +45 dias", href: "/dashboard/conferencia-45dias", icon: AlarmClockCheck, despachante: false, vinculo: false },
+  { label: "Duplicidade", href: "/dashboard/duplicidade", icon: Copy, despachante: false, vinculo: false },
 ];
 
 // Visível pra quem escreve no sistema, incluindo o almoxarifado
@@ -44,13 +45,8 @@ const usuariosNavItems = [
   { label: "Gestão de Usuários", href: "/dashboard/usuarios", icon: Users },
 ];
 
-// Visível pra ADMIN e almoxarifado
-const recuperacaoNavItems = [
-  { label: "Recuperação de Dados", href: "/dashboard/recuperacao-incidente", icon: ShieldAlert },
-];
-
-// Visível só pra ADMIN
-const adminNavItems = [
+// Visível pra ADMIN e GESTOR
+const gestaoNavItems = [
   { label: "Automação GDIS", href: "/dashboard/automacao-gdis", icon: Bot },
   { label: "Backup", href: "/dashboard/backup", icon: DatabaseBackup },
 ];
@@ -94,21 +90,27 @@ export default function DashboardLayout({
   }, [router]);
 
   const isDespachante = profile?.role === "DESPACHANTE";
-  const visibleNavItems = isDespachante ? navItems.filter((n) => n.despachante) : navItems;
+  const podeVincular = canVincularServico(profile?.role);
+  const visibleNavItems = navItems.filter(
+    (n) => (isDespachante ? n.despachante : true) && (n.vinculo ? podeVincular : true)
+  );
   const withColaboradores = canManageColaboradores(profile?.role)
     ? [...visibleNavItems, ...colaboradoresNavItems]
     : visibleNavItems;
   const withGestao = canManageUsers(profile?.role)
     ? [...withColaboradores, ...usuariosNavItems]
     : withColaboradores;
-  const withRecuperacao = canRecuperarDados(profile?.role)
-    ? [...withGestao, ...recuperacaoNavItems]
-    : withGestao;
-  const allNavItems = isAdmin(profile?.role) ? [...withRecuperacao, ...adminNavItems] : withRecuperacao;
+  const verGestao = canGestao(profile?.role);
+  const allNavItems = verGestao ? [...withGestao, ...gestaoNavItems] : withGestao;
+
+  // Fora do menu lateral: entra pelo menu do perfil, só ADMIN e GESTOR.
+  const auditoriaItem = { label: "Log de auditoria", href: "/dashboard/auditoria", icon: ScrollText };
+  const rotasPermitidas = verGestao ? [...allNavItems, auditoriaItem] : allNavItems;
+  const [menuPerfilAberto, setMenuPerfilAberto] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
-    const allowed = allNavItems.some(
+    const allowed = rotasPermitidas.some(
       (n) => pathname === n.href || (n.href !== "/dashboard" && pathname.startsWith(n.href + "/"))
     );
     if (!allowed) router.replace("/dashboard");
@@ -211,19 +213,39 @@ export default function DashboardLayout({
         </nav>
 
         {/* User + Logout */}
-        <div className="border-t border-white/10 p-3">
+        <div className="relative border-t border-white/10 p-3">
+          {verGestao && menuPerfilAberto && (
+            <div className="absolute bottom-full left-3 right-3 mb-1 rounded-lg bg-[#1e2942] border border-white/10 shadow-lg p-1">
+              <Link
+                href={auditoriaItem.href}
+                onClick={() => setMenuPerfilAberto(false)}
+                className="flex items-center gap-2.5 px-3 py-2 rounded-md text-sm text-sinal-fundo/80 hover:bg-white/10 hover:text-white transition-colors"
+              >
+                <ScrollText size={15} className="text-sinal-claro" />
+                {auditoriaItem.label}
+              </Link>
+            </div>
+          )}
           <div className="flex items-center gap-3 px-2 py-2 rounded-lg bg-white/5 border border-white/5">
-            <div className="w-7 h-7 rounded-full bg-sinal flex items-center justify-center flex-shrink-0 shadow-sm">
-              <span className="text-white text-xs font-bold uppercase">
-                {displayName.charAt(0)}
-              </span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-semibold text-white truncate">
-                {displayName}
-              </p>
-              <p className="text-xs text-sinal-fundo/60">{displayRole}</p>
-            </div>
+            <button
+              type="button"
+              onClick={() => verGestao && setMenuPerfilAberto((v) => !v)}
+              disabled={!verGestao}
+              title={verGestao ? "Menu do perfil" : undefined}
+              className="flex flex-1 min-w-0 items-center gap-3 text-left rounded-md enabled:hover:bg-white/5 enabled:cursor-pointer disabled:cursor-default"
+            >
+              <div className="w-7 h-7 rounded-full bg-sinal flex items-center justify-center flex-shrink-0 shadow-sm">
+                <span className="text-white text-xs font-bold uppercase">
+                  {displayName.charAt(0)}
+                </span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white truncate">
+                  {displayName}
+                </p>
+                <p className="text-xs text-sinal-fundo/60">{displayRole}</p>
+              </div>
+            </button>
             <button
               onClick={() => setShowPasswordModal(true)}
               title="Alterar senha"
@@ -247,7 +269,7 @@ export default function DashboardLayout({
         {/* Top bar */}
         <header className="h-14 bg-white border-b border-slate-200 flex items-center px-6 flex-shrink-0 shadow-xs">
           <h1 className="text-sm font-bold text-slate-900">
-            {allNavItems.find(
+            {rotasPermitidas.find(
               (n) =>
                 pathname === n.href ||
                 (n.href !== "/dashboard" && pathname.startsWith(n.href + "/"))

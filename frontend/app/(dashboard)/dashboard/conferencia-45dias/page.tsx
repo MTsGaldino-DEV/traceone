@@ -27,6 +27,8 @@ import type {
   MedidorConferencia45DiasOculto,
 } from "../../../../lib/api";
 import { Pagination } from "../../../../components/Pagination";
+import { canVincularServico } from "../../../../lib/permissions";
+import { usePapel } from "../../../../lib/usePapel";
 
 const PAGE_SIZE = 100;
 
@@ -58,9 +60,11 @@ interface RowProps {
   onOcultar: (id: string) => void;
   addToast: (type: "success" | "error" | "info", text: string) => void;
   ocultando: boolean;
+  /** Supervisor e almoxarifado só ocultam; vincular é de quem vincula serviço. */
+  podeVincular: boolean;
 }
 
-function MedidorRow({ medidor, onVinculado, onOcultar, addToast, ocultando }: RowProps) {
+function MedidorRow({ medidor, onVinculado, onOcultar, addToast, ocultando, podeVincular }: RowProps) {
   const [servicoGdis, setServicoGdis] = useState(medidor.servicoGdis ?? "");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -130,6 +134,8 @@ function MedidorRow({ medidor, onVinculado, onOcultar, addToast, ocultando }: Ro
 
       <td className="px-3 py-3">
         <div className="flex items-center gap-2">
+          {podeVincular ? (
+          <>
           <input
             ref={inputRef}
             type="text"
@@ -158,6 +164,12 @@ function MedidorRow({ medidor, onVinculado, onOcultar, addToast, ocultando }: Ro
             {salvando ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}
             {salvando ? "…" : jaVinculado ? "Atualizar" : "Vincular"}
           </button>
+          </>
+          ) : (
+            <span className="w-40 font-codigo text-xs text-slate-600" title="Seu perfil não vincula serviço">
+              {medidor.servicoGdis ?? <span className="text-slate-300 font-sans">—</span>}
+            </span>
+          )}
           <button
             type="button"
             onClick={() => onOcultar(medidor.id)}
@@ -242,6 +254,7 @@ function OcultoRow({ medidor, onReverter, revertendo }: OcultoRowProps) {
 
 // ─── Página principal ─────────────────────────────────────────────────────────
 export default function Conferencia45DiasPage() {
+  const podeVincular = canVincularServico(usePapel());
   const [medidores, setMedidores] = useState<MedidorConferencia45Dias[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -470,6 +483,7 @@ export default function Conferencia45DiasPage() {
                     onOcultar={handleOcultar}
                     addToast={addToast}
                     ocultando={mexendoId === m.id}
+                    podeVincular={podeVincular}
                   />
                 ))}
               </tbody>

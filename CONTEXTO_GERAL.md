@@ -149,27 +149,36 @@ Todas exigem header `Authorization: Bearer <access_token>` do usuário logado; o
 
 ## 5. Papéis e permissões
 
-`role_type` (enum): `ADMIN` · `GESTOR` · `SUPERVISOR` · `ALMOXARIFADO` · `DESPACHANTE`
+`role_type` (enum): `ADMIN` · `GESTOR` · `SUPERVISOR` · `ALMOXARIFADO` · `ALMOXARIFADO_211` · `DESPACHANTE`
+
+- **Almoxarifado 211** (`ALMOXARIFADO_211`): almoxarifado que também vincula serviço — braço direito do Gestor.
+- **Supervisor** e **Almoxarifado**: reatribuem medidores, **não vinculam serviço**.
+- **Gestor**: tudo, inclusive Backup, Automação GDIS e Log de auditoria.
+
+"Vincular serviço" = qualquer gravação de número de serviço GDIS num medidor: Conferência, Conferência +45 dias, campo Serviço na Lista, Substituir nº do serviço na Duplicidade, importação do relatório GDIS e das planilhas PC/TC/Lucas. **Desvincular** (limpar o serviço) continua liberado para quem escreve.
 
 ### Matriz de acesso
 
-| Capacidade | ADMIN | GESTOR | SUPERVISOR | ALMOXARIFADO | DESPACHANTE |
-|---|:--:|:--:|:--:|:--:|:--:|
-| Ler todas as tabelas operacionais | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Escrever em `medidores_list`, `colaboradores`, `tipos_de_medidores`, `servicos_report` | ✅ | ✅ | ✅ | ✅ | ❌ |
-| Gerenciar usuários (`profiles`, `/api/users`) | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Gestão de colaboradores (tela) | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Forçar importação GDIS com matrícula não cadastrada | ✅ | ✅ | ✅ | ❌ | ❌ |
-| Recuperação de Dados / Automação GDIS | ✅ | ❌ | ❌ | ❌ | ❌ |
-| Ocultar item da Conferência +45 dias / marcar duplicidade revisada | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Capacidade | ADMIN | GESTOR | ALMOX. 211 | SUPERVISOR | ALMOXARIFADO | DESPACHANTE |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|
+| Ler todas as tabelas operacionais | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| Escrever em `medidores_list`, `colaboradores`, `tipos_de_medidores` | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Lançar / reatribuir medidor, substituir nº do medidor | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| **Vincular serviço** (inclui escrever em `servicos_report`) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Forçar importação GDIS com matrícula não cadastrada | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Gerenciar usuários (`profiles`, `/api/users`) | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| Gestão de colaboradores (tela) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
+| Backup, Automação GDIS, Log de auditoria | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Ocultar item da Conferência +45 dias / marcar duplicidade revisada | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 
-Helpers no código (`frontend/lib/permissions.ts`): `canWrite`, `canManageUsers`, `canManageColaboradores`, `canForcarImportacao`, `isAdmin`, `roleLabels`, `assignableRoles` (não é possível atribuir `ADMIN` pela tela).
+Helpers no código (`frontend/lib/permissions.ts`): `canWrite`, `canVincularServico`, `canGestao`, `canManageUsers`, `canManageColaboradores`, `canForcarImportacao`, `roleLabels`, `assignableRoles` (não é possível atribuir `ADMIN` pela tela). No banco: `pode_escrever()` e `pode_vincular_servico()` (migration `045`).
 
 ### Como isso é imposto
 
 - **RLS** em todas as tabelas, usando a função `get_user_role()` (`SECURITY DEFINER`, lê `profiles` por `auth.uid()`).
 - Leitura liberada para qualquer `authenticated`; escrita restrita por role.
 - Algumas RPCs são `SECURITY DEFINER` (ignoram RLS) e por isso **checam a role explicitamente lá dentro** — ex.: `importar_servicos_forcado`, `garantir_servico_report`, `resolver_recuperacao_pendente`. Esconder botão na tela nunca é suficiente.
+- **Trava de vínculo no banco:** o trigger `trg_trava_vinculo_servico` (BEFORE INSERT/UPDATE OF `servico_gdis` em `medidores_list`) recusa gravar serviço para quem não pode vincular, com erro `TO403`. Vale para qualquer caminho (tela, RPC, importação). Exceções: sem usuário logado (scripts com `service_role`) e a vinculação automática do lançamento, que marca a transação com `set_config('traceone.vinculo_automatico','on', true)`.
 - O `DESPACHANTE` só enxerga a Lista de Medidores; o layout redireciona para `/dashboard` se ele tentar outra rota.
 
 > Histórico importante: existiam policies `allow_all_*` (nunca versionadas) que liberavam leitura/escrita total a `public`, inclusive sem login, nas 4 tabelas operacionais. Foram removidas na migration `019`. Se algo parecer "permissivo demais" no banco, conferir `pg_policies` antes de assumir.
@@ -182,7 +191,7 @@ Helpers no código (`frontend/lib/permissions.ts`): `canWrite`, `canManageUsers`
 
 | Nome | Valores | Observação |
 |---|---|---|
-| `role_type` (enum) | `ADMIN`, `GESTOR`, `SUPERVISOR`, `ALMOXARIFADO`, `DESPACHANTE` | `ALMOXARIFE` foi renomeado para `ALMOXARIFADO` |
+| `role_type` (enum) | `ADMIN`, `GESTOR`, `SUPERVISOR`, `ALMOXARIFADO`, `ALMOXARIFADO_211`, `DESPACHANTE` | `ALMOXARIFE` foi renomeado para `ALMOXARIFADO`; `ALMOXARIFADO_211` entrou na `044` |
 | `status_medidor` (enum) | `PENDENTE`, `CONCLUIDO`, `REATRIBUIDO` | `REATRIBUIDO` é linha histórica, some da view |
 | `status_conferencia` | `PENDENTE`, `CONFERIDO`, `AGUARDANDO_VINCULACAO` | **Não é enum** — é `TEXT` com CHECK constraint em `servicos_report` |
 
@@ -292,7 +301,7 @@ Ocultar é **coletivo e persistente**: todo mundo vê a mesma lista.
 | `revisado_por` | UUID | FK → `profiles`, default `auth.uid()` |
 | `revisado_em` | TIMESTAMPTZ NOT NULL | |
 
-### `medidor_recuperacao_pendente` — resíduo do incidente de 2026-09-16 (só ADMIN)
+### `medidor_recuperacao_pendente` — resíduo do incidente de 2026-09-16 (ADMIN e GESTOR; a aba saiu, a Automação GDIS ainda usa)
 
 | Coluna | Tipo | Notas |
 |---|---|---|
@@ -301,7 +310,7 @@ Ocultar é **coletivo e persistente**: todo mundo vê a mesma lista.
 | `candidatos_serial` | JSONB | candidatos encontrados no cruzamento de fontes |
 | `criado_em` | TIMESTAMPTZ NOT NULL | |
 
-### `automacao_gdis_log` — histórico das rodadas da Automação GDIS (só ADMIN)
+### `automacao_gdis_log` — histórico das rodadas da Automação GDIS (ADMIN e GESTOR)
 
 | Coluna | Tipo | Notas |
 |---|---|---|
@@ -319,6 +328,25 @@ Ocultar é **coletivo e persistente**: todo mundo vê a mesma lista.
 | `criado_em` / `atualizado_em` | TIMESTAMPTZ | |
 
 `UNIQUE (execucao_id, chave_item)` — a linha **evolui** (upsert) de `ENCONTRADO` para `GRAVADO`/`CONFLITO`/`AGUARDANDO` em vez de virar duas.
+
+### `auditoria_log` — log de auditoria (leitura só ADMIN e GESTOR; imutável)
+
+Gravado pelo trigger `trg_auditoria` → `fn_auditoria()` em `medidores_list`, `servicos_report`, `colaboradores`, `profiles`, `tipos_de_medidores`, `conferencia_45dias_ocultos` e `duplicidade_revisados`. O cliente não grava, altera nem apaga (sem policy de escrita e `REVOKE`).
+
+| Coluna | Tipo | Notas |
+|---|---|---|
+| `id` | BIGINT identity PK | |
+| `criado_em` | TIMESTAMPTZ NOT NULL | |
+| `usuario_id`, `usuario_nome`, `usuario_papel` | UUID / TEXT | **sem FK**: o registro sobrevive à exclusão do usuário |
+| `origem` | TEXT NOT NULL | `USUARIO`, `AUTOMATICO` (vinculação automática do lançamento), `SISTEMA` (sem login) |
+| `tabela` | TEXT | tabela afetada; NULL em `ACESSO_NEGADO` |
+| `operacao` | TEXT NOT NULL | `INSERT`, `UPDATE`, `DELETE`, `NEGADO` |
+| `evento` | TEXT NOT NULL | ex.: `SERVICO_VINCULADO`, `SERVICO_SUBSTITUIDO`, `SERVICO_DESVINCULADO`, `SERIAL_SUBSTITUIDO`, `MEDIDOR_REATRIBUIDO`, `MEDIDOR_EXCLUIDO`, `CONFERENCIA_<status>`, `PAPEL_ALTERADO`, `ACESSO_NEGADO` |
+| `registro_id`, `chave` | TEXT | id da linha e o que a identifica (serial, serviço, matrícula, nome) |
+| `busca` | TEXT | identificadores em minúsculo, para busca parcial |
+| `antes`, `depois` | JSONB | UPDATE: só os campos alterados; INSERT/DELETE: linha inteira |
+
+UPDATE que não muda nada não gera linha. Tentativas recusadas por permissão são desfeitas junto com a transação, então o front as registra à parte pela RPC `registrar_acesso_negado` (evento `ACESSO_NEGADO`).
 
 ### Tabelas de backup
 
@@ -361,6 +389,8 @@ Junta `medidores_list` + `colaboradores` + `tipos_de_medidores`, **excluindo `st
 | `trg_touch_atualizacao` | `medidores_list` | `atualizacao = now()` em UPDATE |
 | `trg_auto_vincular_serial` | `medidores_list` AFTER INSERT | se o novo medidor é `PENDENTE` e existe serviço `AGUARDANDO_VINCULACAO` com aquele `serial_buscado`, vincula sozinho (mais antigo primeiro) |
 | `trg_log_medidor_evento` → `fn_log_medidor_evento()` | `medidores_list` | grava a linha do tempo em `medidor_logs` |
+| `trg_trava_vinculo_servico` → `fn_trava_vinculo_servico()` | `medidores_list` BEFORE INSERT/UPDATE OF `servico_gdis` | recusa (`TO403`) gravar serviço sem permissão de vínculo |
+| `trg_auditoria` → `fn_auditoria()` | 7 tabelas operacionais | grava `auditoria_log` |
 
 > **Regra de ouro para qualquer função `SECURITY DEFINER` nova:** declarar `SET search_path = public`. Uma função `SECURITY DEFINER` sem isso herda o `search_path` de quem chama — foi exatamente o bug que impedia a criação de qualquer usuário (o GoTrue chama como `supabase_auth_admin`, cujo `search_path` é só `auth`).
 
@@ -390,6 +420,8 @@ Todas chamadas via `POST /rest/v1/rpc/<nome>`. Em Kotlin: `postgrest.rpc("nome",
 | `get_duplicidade_revisados` | — | JSONB[] | Log do que já foi revisado. |
 | `marcar_duplicidade_revisado` | `p_tipo`, `p_chave` | VOID | Grava o snapshot dos itens em conflito. |
 | `excluir_medidor_duplicado` | `p_id UUID` | INT (linhas restantes) | **Destrutivo**: leva os `medidor_logs` junto por CASCADE. Recusa se for a única linha daquele serial. |
+| `substituir_serial_medidor` | `p_id UUID`, `p_serial TEXT` | VOID | Troca o serial da linha (quem escreve). Recusa com `TO409` se o serial novo já estiver `PENDENTE` em outra linha e a linha for `PENDENTE`. Atualiza `servicos_report.medidor_serial_vinculado`. |
+| `substituir_servico_medidor` | `p_id UUID`, `p_servico TEXT` | VOID | Troca ou grava o serviço da linha (só quem vincula). `PENDENTE` vira `CONCLUIDO`. O serviço antigo, se veio do GDIS e ficou sem medidor, volta para `PENDENTE` na Conferência. |
 
 ### Métricas e listas
 
@@ -405,9 +437,11 @@ Todas chamadas via `POST /rest/v1/rpc/<nome>`. Em Kotlin: `postgrest.rpc("nome",
 | RPC | Parâmetros | Retorno | Notas |
 |---|---|---|---|
 | `importar_planilha_pc` | `p_itens JSONB` (lotes de 500) | JSONB `{ servicos_criados, medidores_atualizados, servicos_conferidos }` | Cria os serviços faltantes antes de vincular, satisfazendo a FK. |
-| `importar_servicos_forcado` | `p_itens JSONB` | INT (importados) | Importa ignorando matrícula não cadastrada (entra sem matrícula). Só `ADMIN`/`GESTOR`/`SUPERVISOR` — checado dentro da função. |
+| `importar_servicos_forcado` | `p_itens JSONB` | INT (importados) | Importa ignorando matrícula não cadastrada (entra sem matrícula). Só `ADMIN`/`GESTOR`/`ALMOXARIFADO_211` — checado dentro da função. |
 
-### Recuperação e automação (só ADMIN)
+`importar_planilha_pc` e `importar_planilha_lucas` também gravam serviço: só `ADMIN`/`GESTOR`/`ALMOXARIFADO_211`.
+
+### Recuperação e automação (ADMIN e GESTOR)
 
 | RPC | Parâmetros | Retorno |
 |---|---|---|
@@ -416,6 +450,21 @@ Todas chamadas via `POST /rest/v1/rpc/<nome>`. Em Kotlin: `postgrest.rpc("nome",
 | `get_automacao_execucoes` | — | JSONB[] com totais por rodada |
 | `get_automacao_execucao_itens` | `p_execucao_id UUID` | JSONB[] com as linhas da rodada |
 | `get_user_role` | — | `role_type` — base de toda RLS |
+| `pode_escrever` / `pode_vincular_servico` | — | BOOLEAN — papéis que escrevem / que vinculam serviço |
+| `registrar_acesso_negado` | `p_acao TEXT`, `p_detalhe TEXT` | VOID — grava `ACESSO_NEGADO` no log de auditoria |
+
+### Códigos de erro próprios
+
+As funções novas levantam erros com SQLSTATE próprio. `message` é o título curto e `details` é a explicação, prontos para mostrar ao usuário (o web traduz em `frontend/lib/erros.ts`; o Android deve fazer o mesmo):
+
+| Código | Significado |
+|---|---|
+| `TO403` | sem permissão (ex.: vincular serviço sem ser Gestor/Almox. 211/Admin) |
+| `TO404` | registro não encontrado (tela desatualizada) |
+| `TO409` | conflito (ex.: serial já pendente em outra linha) |
+| `TO422` | dado inválido (ex.: número vazio) |
+
+Erros do Postgres que o web também traduz: `23505` com `idx_medidor_serial_pendente_unico` → "Serial já pendente em outra linha" (bloqueio proposital: um serial só pode ter uma linha PENDENTE); `23503` em `medidores_list_servico_gdis_fkey` → "Serviço não encontrado"; `23503` em DELETE → "Registro em uso"; `42501`/RLS → "Sem permissão".
 
 ---
 
@@ -433,13 +482,15 @@ Rotas atuais do web:
 /dashboard                               — ★ Lista de Medidores (principal)
 /dashboard/lancamento                    — lançamento manual de medidores
 /dashboard/importacao                    — importação de planilhas (abas)
-/dashboard/conferencia                   — conferência de serviços GDIS
+/dashboard/conferencia                   — conferência de serviços GDIS (só quem vincula serviço)
 /dashboard/conferencia-45dias            — pendências críticas (+45 dias)
 /dashboard/duplicidade                   — grupos duplicados (serviço ou serial)
 /dashboard/colaboradores                 — CRUD de colaboradores (supervisor+)
 /dashboard/usuarios                      — CRUD de usuários do sistema (supervisor+)
-/dashboard/recuperacao-incidente         — resolução de seriais reconstruídos (ADMIN)
-/dashboard/automacao-gdis                — robô de consulta ao GDIS (ADMIN, desktop)
+/dashboard/automacao-gdis                — robô de consulta ao GDIS (ADMIN e GESTOR, desktop)
+/dashboard/backup                        — backup completo em JSON (ADMIN e GESTOR)
+/dashboard/auditoria                     — log de auditoria (ADMIN e GESTOR; fora do menu,
+                                           abre clicando no nome do usuário na barra lateral)
 ```
 
 ### 9.1 Lista de Medidores (`/dashboard`) — tela principal
@@ -493,7 +544,9 @@ Lê `.xlsx` e `.csv` no browser. Abas:
 - **Planilha de Atribuições (Juliana)** — colunas por índice: 1 = Material SAP, 2 = Serial, 10 = Recebedor (matrícula), 11 = Data. Antes de executar, mostra 3 listas: **Devolvidos** (existe no banco, sumiu da planilha → deletar), **Reatribuições** (matrícula diferente → atualizar), **Divergências** (material/data diferentes → atualizar).
 - **Planilha PC** — vinculação em lote via `importar_planilha_pc`, em lotes de 500 com progresso.
 
-### 9.4 Conferência (`/dashboard/conferencia`)
+Supervisor e Almoxarifado veem só a aba **Atribuições**: GDIS, PC, TC e Lucas gravam serviço.
+
+### 9.4 Conferência (`/dashboard/conferencia`) — só quem vincula serviço
 
 - **Pendentes de conferência** (`status_conferencia = 'PENDENTE'`): botão Copiar (copia o nº do serviço e foca o campo) + campo de serial + Vincular (ou Enter) → `vincular_servico_medidor`.
 - **Aguardando vinculação**: ✏️ Corrigir (input inline, tenta vincular de novo) e ↩️ Reverter (volta para `PENDENTE`, limpa `serial_buscado`). Exportação em Excel disponível.
@@ -501,7 +554,7 @@ Lê `.xlsx` e `.csv` no browser. Abas:
 
 ### 9.5 Conferência +45 dias (`/dashboard/conferencia-45dias`)
 
-Lista paginada (`get_conferencia_45dias`) dos medidores `PENDENTE` com mais de N dias (default 45), ordenável por dias e com busca por serial. Cada linha permite digitar o serviço GDIS e vincular direto (`vincularServicoGdisMedidor` → marca `CONCLUIDO` com `data_conclusao` = hoje) ou **ocultar** o item (persistente e compartilhado, reversível na seção de ocultados).
+Lista paginada (`get_conferencia_45dias`) dos medidores `PENDENTE` com mais de N dias (default 45), ordenável por dias e com busca por serial. Cada linha permite digitar o serviço GDIS e vincular direto (`vincularServicoGdisMedidor` → marca `CONCLUIDO` com `data_conclusao` = hoje) ou **ocultar** o item (persistente e compartilhado, reversível na seção de ocultados). Supervisor e Almoxarifado só ocultam: o campo de serviço aparece só para leitura.
 
 ### 9.6 Duplicidade (`/dashboard/duplicidade`)
 
@@ -509,18 +562,26 @@ Dois critérios, cada grupo etiquetado:
 - **SERVICO** — um serviço GDIS puxou mais de um serial (âmbar).
 - **SERIAL** — o mesmo serial em mais de uma linha, duplicata literal ou vinculado a dois serviços (violeta).
 
-Ações: **Desvincular** (limpa `servico_gdis`, volta para `PENDENTE` — resolve vínculo errado, não linha sobrando), **Excluir linha** (`excluir_medidor_duplicado`, destrutivo), **Marcar revisado** / **Reverter revisão**.
+Ações por linha:
+- **Nº medidor** — substitui o serial da linha (`substituir_serial_medidor`). Todos que escrevem.
+- **Nº serviço** — substitui ou grava o serviço GDIS da linha (`substituir_servico_medidor`). Só quem vincula serviço.
+- **Desvincular** — limpa `servico_gdis` e volta para `PENDENTE`; resolve vínculo errado, não linha sobrando. Desabilitado quando outra linha do mesmo serial já está `PENDENTE` (o índice `idx_medidor_serial_pendente_unico` recusaria).
+- **Excluir linha** (grupos SERIAL) — `excluir_medidor_duplicado`, destrutivo.
+
+No grupo: **Marcar revisado** / **Reverter revisão**.
 
 ### 9.7 Gestão de Colaboradores e de Usuários
 
 - **Colaboradores** (supervisor+): CRUD com busca, filtros por supervisor/GC/GO, paginação de 25. Exclusão bloqueada quando há medidores vinculados — a tela mostra a contagem e orienta a inativar.
 - **Usuários** (supervisor+): cria com senha padrão, edita nome/e-mail/papel/status, dispara link de redefinição de senha, exclui. Passa pelas rotas `/api/users`.
 
-### 9.8 Recuperação de Dados (ADMIN)
+### 9.8 Log de auditoria (`/dashboard/auditoria`, ADMIN e GESTOR)
 
-Resíduo do incidente de perda de dados de **2026-09-16**: medidores reconstruídos cujo serial não pôde ser confirmado (`SEM_SERIAL`) ou teve mais de um candidato (`AMBIGUO`). A tela mostra os candidatos e grava o serial correto via `resolver_recuperacao_pendente` (avisa se o serial já existe em outra linha, mas grava).
+Fora do menu lateral: abre clicando no nome do usuário, no rodapé da barra lateral. Lista `auditoria_log` do mais recente para o mais antigo, 50 por página, com filtros por busca (serial, serviço, matrícula ou usuário), área, evento e período. Cada linha mostra quando, quem (nome, papel e origem automático/sistema), o evento e o antes → depois de cada campo alterado. Tentativas recusadas aparecem como **Acesso negado**.
 
-### 9.9 Automação GDIS (ADMIN, **desktop-only**)
+A antiga aba **Recuperação de Dados** foi removida (2026-10-20): não era mais usada. A tabela `medidor_recuperacao_pendente` continua e a Automação GDIS ainda trata a fila de Recuperação.
+
+### 9.9 Automação GDIS (ADMIN e GESTOR, **desktop-only**)
 
 Robô que descobre o serial instalado consultando o GDIS. Não funciona em celular — depende de um **conector local**:
 
@@ -625,7 +686,7 @@ O TraceOne web é uma ferramenta de escritório. No celular, o valor está em **
 | Colaboradores / Usuários | ⚠️ opcional, baixo uso móvel |
 | Importação de planilhas | ❌ não faz sentido no celular |
 | Automação GDIS | ❌ impossível: depende do conector local na rede interna |
-| Recuperação de Dados | ❌ tarefa pontual de ADMIN |
+| Log de auditoria | ⚠️ opcional, consulta de gestor |
 
 ### Escopo sugerido para a v1
 
@@ -682,7 +743,7 @@ data class MedidorCompleto(
 
 ### Referência da camada de dados do web
 
-`frontend/lib/api.ts` é o catálogo completo de operações já implementadas — vale ler como especificação antes de escrever o repositório Kotlin. Funções principais: `login`, `getProfile`, `getTiposMedidores`, `getColaboradores`, `getSupervisores`, `getMedidoresCompleto`, `getAllMedidoresCompleto`, `getMedidoresMetrics`, `createMedidor(es)`, `updateMedidor`, `deleteMedidor`, `getMedidorLogs`, `verificarMedidorAtribuido`, `reatribuirMedidor`, `getMedidorReatribuicaoInfo`, `importServicos`, `importServicosForcado`, `getServicosConferencia`, `getServicosAguardandoVinculacao`, `vincularServicoMedidor`, `vincularServicoGdisMedidor`, `verificarVinculacoesPendentes`, `reverterServicoPendente`, `deleteServicoReport`, `getMedidoresConferencia45Dias`, `getConferencia45DiasOcultos`, `ocultarMedidor45Dias`, `reverterOcultarMedidor45Dias`, `getDuplicidadeMedidores`, `marcarDuplicidadeRevisado`, `excluirMedidorDuplicado`, `desvincularDuplicidadeMedidor`, `getMedidoresParaSync`, `syncAtribuicoes`, `getMedidoresParaPC`, `importarPlanilhaPC`, `getRecuperacaoPendente`, `resolverRecuperacaoPendente`, `registrarAutomacaoLog`, `getAutomacaoExecucoes`, `getMedidoresAcima45Dias`, `changeOwnPassword`, `requestPasswordReset`, CRUD de usuários e colaboradores.
+`frontend/lib/api.ts` é o catálogo completo de operações já implementadas — vale ler como especificação antes de escrever o repositório Kotlin. Funções principais: `login`, `getProfile`, `getTiposMedidores`, `getColaboradores`, `getSupervisores`, `getMedidoresCompleto`, `getAllMedidoresCompleto`, `getMedidoresMetrics`, `createMedidor(es)`, `updateMedidor`, `deleteMedidor`, `getMedidorLogs`, `verificarMedidorAtribuido`, `reatribuirMedidor`, `getMedidorReatribuicaoInfo`, `importServicos`, `importServicosForcado`, `getServicosConferencia`, `getServicosAguardandoVinculacao`, `vincularServicoMedidor`, `vincularServicoGdisMedidor`, `verificarVinculacoesPendentes`, `reverterServicoPendente`, `deleteServicoReport`, `getMedidoresConferencia45Dias`, `getConferencia45DiasOcultos`, `ocultarMedidor45Dias`, `reverterOcultarMedidor45Dias`, `getDuplicidadeMedidores`, `marcarDuplicidadeRevisado`, `excluirMedidorDuplicado`, `desvincularDuplicidadeMedidor`, `getMedidoresParaSync`, `syncAtribuicoes`, `getMedidoresParaPC`, `importarPlanilhaPC`, `getRecuperacaoPendente`, `resolverRecuperacaoPendente`, `substituirSerialMedidor`, `substituirServicoMedidor`, `getAuditoria`, `registrarAutomacaoLog`, `getAutomacaoExecucoes`, `getMedidoresAcima45Dias`, `changeOwnPassword`, `requestPasswordReset`, CRUD de usuários e colaboradores.
 
 ---
 
@@ -759,7 +820,11 @@ O projeto **não tem shadcn/ui configurado**. Em vez de inicializar todo esse to
 
 ### 15.5 Incidente de perda de dados (2026-09-16)
 
-Medidores foram reconstruídos cruzando fontes. Os que ficaram sem serial confiável ou com mais de um candidato estão em `medidor_recuperacao_pendente` e são tratados na tela de Recuperação de Dados (ADMIN) — parte manualmente, parte pela Automação GDIS.
+Medidores foram reconstruídos cruzando fontes. Os que ficaram sem serial confiável ou com mais de um candidato estão em `medidor_recuperacao_pendente` e eram tratados na tela de Recuperação de Dados — parte manualmente, parte pela Automação GDIS. A tela foi removida em 2026-10-20; o que sobrou é tratado só pela Automação GDIS.
+
+### 15.6 Vínculo de serviço por papel e log de auditoria (2026-10-20)
+
+Migrations `044` (enum, rodar sozinha) e `045`. Criado o papel `ALMOXARIFADO_211`; Supervisor e Almoxarifado deixaram de vincular serviço (trava no banco por trigger, não só na tela); Gestor ganhou Backup, Automação GDIS e Log de auditoria. Criada `auditoria_log` com trigger genérico nas tabelas operacionais. Erros do banco passaram a ter título e explicação (`frontend/lib/erros.ts`, códigos `TOxxx`).
 
 ---
 

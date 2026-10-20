@@ -47,7 +47,7 @@ import {
 import type { SortConfig, RankingItem, MedidorLog } from "../../../lib/api";
 import type { MedidorCompleto, Colaborador, TipoMedidor, Profile } from "../../../lib/supabase";
 import type { ReatribuicaoHistorico, DashboardMetrics } from "../../../lib/api";
-import { canWrite } from "../../../lib/permissions";
+import { canVincularServico, canWrite } from "../../../lib/permissions";
 import { StatusMedidor } from "../../../components/StatusMedidor";
 import { PieChart } from "../../../components/charts/pie-chart";
 import { PieSlice } from "../../../components/charts/pie-slice";
@@ -266,6 +266,7 @@ export default function DashboardPage() {
   // Permissões
   const [profile, setProfile] = useState<Profile | null>(null);
   const canEdit = canWrite(profile?.role);
+  const podeVincular = canVincularServico(profile?.role);
 
   useEffect(() => {
     getProfile().then(setProfile).catch(() => setProfile(null));
@@ -317,6 +318,7 @@ export default function DashboardPage() {
   const [editSerial, setEditSerial] = useState("");
   const [editMaterialSap, setEditMaterialSap] = useState("");
   const [editServicoGdis, setEditServicoGdis] = useState("");
+  const [servicoGdisOriginal, setServicoGdisOriginal] = useState("");
   const [editStatus, setEditStatus] = useState("");
   const [editDataConclusao, setEditDataConclusao] = useState("");
   const [editSupervisor, setEditSupervisor] = useState("");
@@ -597,6 +599,7 @@ export default function DashboardPage() {
     setEditSerial(row["Serial"] ?? "");
     setEditMaterialSap((row["Material SAP"] as string) ?? "");
     setEditServicoGdis((row["SERVIÇO GDIS"] as string) ?? "");
+    setServicoGdisOriginal((row["SERVIÇO GDIS"] as string) ?? "");
     setEditStatus((row["Concluído/Pendente"] as string) ?? "PENDENTE");
     setEditDataConclusao((row["Data da conclusão"] as string) ?? "");
     setEditSupervisor((row["SUPERVISOR"] as string) ?? "");
@@ -657,12 +660,15 @@ export default function DashboardPage() {
         ? new Date().toISOString().slice(0, 10)
         : editDataConclusao || null;
 
+      // Só manda o serviço se ele mudou: quem não vincula serviço também
+      // salva o resto do cadastro (reatribuição) sem tocar no vínculo.
+      const servicoMudou = editServicoGdis.trim() !== servicoGdisOriginal.trim();
       await updateMedidor(modalId, {
         matricula: editMatricula,
         data: editData,
         serial: editSerial,
         material_sap: editMaterialSap,
-        servico_gdis: editServicoGdis.trim() !== "" ? editServicoGdis.trim() : null,
+        ...(servicoMudou && { servico_gdis: editServicoGdis.trim() !== "" ? editServicoGdis.trim() : null }),
         status: finalStatus,
         data_conclusao: finalDataConclusao,
       });
@@ -1226,7 +1232,7 @@ export default function DashboardPage() {
                             >
                               <Eye size={14} />
                             </button>
-                            {isPendente && canEdit && (
+                            {isPendente && podeVincular && (
                               <button
                                 onClick={() => { setGdisTarget({ id: row.id, serial: row["Serial"] as string }); setGdisInput(""); setGdisError(null); }}
                                 className="p-1 text-aco-claro hover:text-emerald-600 transition-colors rounded"
@@ -1523,8 +1529,10 @@ export default function DashboardPage() {
                     type="text"
                     value={editServicoGdis}
                     onChange={(e) => setEditServicoGdis(e.target.value)}
-                    placeholder="ex: 123456789"
-                    className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro"
+                    readOnly={!podeVincular}
+                    title={podeVincular ? undefined : "Seu perfil não vincula serviço"}
+                    placeholder={podeVincular ? "ex: 123456789" : "—"}
+                    className="w-full h-9 px-3 text-sm border border-linha rounded-lg focus:outline-none focus:ring-1 focus:ring-sinal-claro read-only:bg-slate-50 read-only:text-aco"
                   />
                 </div>
 

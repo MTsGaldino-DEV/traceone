@@ -44,10 +44,6 @@ yarn-error.log*
 /supabase/.env
 /supabase/.env.local
 
-# Migrations novas param de entrar no git a partir daqui — as ja commitadas
-# continuam versionadas normalmente, .gitignore nao afeta arquivo ja rastreado.
-/supabase/migrations/
-
 # Temp/scripts
 replacements.txt
 

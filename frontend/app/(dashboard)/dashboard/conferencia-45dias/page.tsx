@@ -14,6 +14,8 @@ import {
   EyeOff,
   Undo2,
   Search,
+  ClipboardCopy,
+  Check,
 } from "lucide-react";
 import {
   getMedidoresConferencia45Dias,
@@ -68,7 +70,15 @@ function MedidorRow({ medidor, onVinculado, onOcultar, addToast, ocultando, pode
   const [servicoGdis, setServicoGdis] = useState(medidor.servicoGdis ?? "");
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleCopiarSerial = () => {
+    navigator.clipboard.writeText(medidor.serial).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   const dataFormatada = (() => {
     try {
@@ -122,6 +132,21 @@ function MedidorRow({ medidor, onVinculado, onOcultar, addToast, ocultando, pode
 
       <td className="px-4 py-3 whitespace-nowrap">
         <span className="font-codigo text-sm font-bold text-slate-800">{medidor.serial}</span>
+      </td>
+
+      <td className="px-3 py-3 whitespace-nowrap">
+        <button
+          type="button"
+          onClick={handleCopiarSerial}
+          title="Copiar número do medidor"
+          className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-bold rounded-lg transition-all border ${
+            copied
+              ? "bg-emerald-100 text-emerald-700 border-emerald-300"
+              : "bg-slate-100 text-slate-700 border-slate-200 hover:bg-sinal-fundo hover:text-sinal-forte hover:border-sinal-claro"
+          }`}
+        >
+          {copied ? <Check size={13} /> : <ClipboardCopy size={13} />}
+        </button>
       </td>
 
       <td className="px-4 py-3 text-xs text-slate-600 font-codigo whitespace-nowrap">
@@ -463,6 +488,7 @@ export default function Conferencia45DiasPage() {
                   <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">
                     Serial
                   </th>
+                  <th className="px-3 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide"></th>
                   <th className="px-4 py-2.5 text-left text-xs font-bold text-slate-500 uppercase tracking-wide">
                     Matrícula
                   </th>

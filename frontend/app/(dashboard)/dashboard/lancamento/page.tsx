@@ -41,6 +41,22 @@ function formatDateBR(dateStr?: string | null): string {
 
 type SerialStatus = "idle" | "checking" | "ok" | "conflict";
 
+// Expande "APK266369231 A APK266369244" nos seriais individuais da faixa (caixa bipada).
+function expandSerialToken(token: string): string[] {
+  const match = token.match(/^([A-Za-z]+)(\d+)\s+a\s+([A-Za-z]+)(\d+)$/i);
+  if (!match) return [token];
+  const [, prefixStart, numStart, prefixEnd, numEnd] = match;
+  if (prefixStart.toUpperCase() !== prefixEnd.toUpperCase()) return [token];
+  const start = parseInt(numStart, 10);
+  const end = parseInt(numEnd, 10);
+  if (Number.isNaN(start) || Number.isNaN(end) || end < start || end - start > 1000) return [token];
+  const prefix = prefixStart.toUpperCase();
+  const width = numStart.length;
+  const out: string[] = [];
+  for (let n = start; n <= end; n++) out.push(`${prefix}${String(n).padStart(width, "0")}`);
+  return out;
+}
+
 // ─── SAP Material search component ───────────────────────────────────────────
 interface SapSearchProps {
   tipos: TipoMedidor[];
@@ -355,10 +371,25 @@ export default function LancamentoManualPage() {
   const [tipoSelecionado, setTipoSelecionado] = useState<TipoMedidor | null>(null);
   const [serialInput, setSerialInput] = useState("");
 
-  const serials = useMemo(() =>
-    serialInput.split(",").map((s) => s.trim()).filter((s) => s.length > 0),
-    [serialInput]
+  const expandedSerials = useMemo(() => {
+    const tokens = serialInput.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+    return tokens.flatMap(expandSerialToken);
+  }, [serialInput]);
+
+  const [removedSerials, setRemovedSerials] = useState<Set<string>>(new Set());
+
+  const serials = useMemo(
+    () => expandedSerials.filter((s) => !removedSerials.has(s)),
+    [expandedSerials, removedSerials]
   );
+
+  // Se o texto mudar, descarta remoções de seriais que não existem mais na faixa.
+  useEffect(() => {
+    setRemovedSerials((prev) => {
+      const next = new Set([...prev].filter((s) => expandedSerials.includes(s)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [expandedSerials]);
 
   const [colaboradores, setColaboradores] = useState<Colaborador[]>([]);
   const [tipos, setTipos] = useState<TipoMedidor[]>([]);
@@ -463,8 +494,7 @@ export default function LancamentoManualPage() {
 
   const handleCancelarReatribuicao = () => {
     if (!modalConflito) return;
-    const novosSerials = serials.filter((s) => s !== modalConflito.serial);
-    setSerialInput(novosSerials.join(", "));
+    setRemovedSerials((prev) => new Set(prev).add(modalConflito.serial));
     setModalConflito(null);
   };
 
@@ -613,14 +643,14 @@ export default function LancamentoManualPage() {
               )}
             </div>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wide mb-2 block">
-              Seriais (separados por vírgula)
+              Seriais (separados por vírgula, ou faixa "APK266369231 A APK266369244")
             </label>
             <div className="relative">
               <Barcode size={15} className="absolute left-3 top-3.5 text-slate-400" />
               <textarea
                 value={serialInput}
                 onChange={(e) => setSerialInput(e.target.value)}
-                placeholder="AMN258018041, AMN258018045, AMN258018188..."
+                placeholder="AMN258018041, AMN258018045, APK266369231 A APK266369244..."
                 rows={4}
                 className="w-full pl-9 pr-4 py-2.5 border border-slate-300 rounded-xl text-sm font-codigo font-medium text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-sinal focus:border-sinal transition-all resize-none"
               />
@@ -637,7 +667,7 @@ export default function LancamentoManualPage() {
                     )}
                   </span>
                   <button type="button"
-                    onClick={() => { setSerialInput(""); setSerialsReatribuidos([]); setSerialStatuses({}); setSerialConflicts({}); verifiedRef.current.clear(); }}
+                    onClick={() => { setSerialInput(""); setSerialsReatribuidos([]); setSerialStatuses({}); setSerialConflicts({}); setRemovedSerials(new Set()); verifiedRef.current.clear(); }}
                     className="text-xs text-red-500 hover:text-red-700 font-semibold flex items-center gap-1">
                     <Trash2 size={12} /> Limpar
                   </button>
@@ -683,6 +713,16 @@ export default function LancamentoManualPage() {
                             className="ml-1 flex items-center gap-0.5 text-[10px] font-bold text-amber-700 bg-amber-100 hover:bg-amber-200 px-1.5 py-0.5 rounded-full transition-colors border border-amber-300"
                           >
                             <RefreshCw size={9} /> Reatribuir
+                          </button>
+                        )}
+                        {!reatribuido && (
+                          <button
+                            type="button"
+                            onClick={() => setRemovedSerials((prev) => new Set(prev).add(s))}
+                            title="Remover este medidor da lista"
+                            className="text-slate-400 hover:text-red-600 transition-colors"
+                          >
+                            <X size={11} />
                           </button>
                         )}
                       </div>

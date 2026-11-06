@@ -141,10 +141,11 @@ export interface SortConfig {
   ascending: boolean;
 }
 
+/** Supervisores com pelo menos um medidor vinculado, respeitando as permissões da sessão. */
 export async function getSupervisores(): Promise<string[]> {
   const { data, error } = await supabase
     .from('colaboradores')
-    .select('supervisor')
+    .select('supervisor,medidores_list!inner()')
     .not('supervisor', 'is', null)
     .order('supervisor');
   if (error) throw traduzirErro(error);

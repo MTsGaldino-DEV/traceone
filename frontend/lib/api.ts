@@ -422,6 +422,21 @@ export async function importServicos(
   return { ok: true, imported: payload.length };
 }
 
+/** Quantos dos números de serviço já existem em servicos_report (para a prévia da importação). */
+export async function contarServicosExistentes(servicos: string[]): Promise<number> {
+  const distintos = Array.from(new Set(servicos));
+  let existentes = 0;
+  for (let i = 0; i < distintos.length; i += 200) {
+    const { count, error } = await supabase
+      .from('servicos_report')
+      .select('servico', { count: 'exact', head: true })
+      .in('servico', distintos.slice(i, i + 200));
+    if (error) throw traduzirErro(error);
+    existentes += count ?? 0;
+  }
+  return existentes;
+}
+
 /**
  * Importa ignorando a trava de matrícula não cadastrada: quem não existe em
  * colaboradores entra sem matrícula. Restrito a SUPERVISOR, GESTOR e ADMIN —

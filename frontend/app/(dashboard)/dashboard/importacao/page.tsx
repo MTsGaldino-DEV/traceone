@@ -23,6 +23,7 @@ import * as XLSX from "xlsx";
 import {
   importServicos,
   importServicosForcado,
+  contarServicosExistentes,
   getProfile,
   getMedidoresParaSync,
   syncAtribuicoes,
@@ -85,9 +86,11 @@ function parseDateGdis(raw: unknown): string | null {
   }
   const str = String(raw).trim();
   const dmy = str.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}T00:00:00Z`;
+  // Meio-dia UTC (e nao 00:00): em UTC-3 a meia-noite UTC cai no dia anterior
+  // e o servico aparecia com a data de ontem.
+  if (dmy) return `${dmy[3]}-${dmy[2].padStart(2, "0")}-${dmy[1].padStart(2, "0")}T12:00:00Z`;
   const ymd = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (ymd) return `${str.slice(0, 10)}T00:00:00Z`;
+  if (ymd) return `${str.slice(0, 10)}T12:00:00Z`;
   const t = new Date(str);
   if (!isNaN(t.getTime())) return t.toISOString();
   return null;
@@ -543,12 +546,14 @@ function GdisTab() {
   const [importSuccess, setImportSuccess] = useState<number | null>(null);
   const [matriculasFaltantes, setMatriculasFaltantes] = useState<MatriculaNaoCadastrada[]>([]);
   const [role, setRole] = useState<Role | null>(null);
+  const [jaExistentes, setJaExistentes] = useState<number | null>(null);
 
   useEffect(() => {
     getProfile().then((p) => setRole(p?.role ?? null)).catch(() => setRole(null));
   }, []);
 
   const processFile = useCallback((f: File) => {
+    setJaExistentes(null);
     setFile(f); setParsed(null); setImportError(null); setImportSuccess(null);
     setMatriculasFaltantes([]);
     const reader = new FileReader();
@@ -556,6 +561,11 @@ function GdisTab() {
       try {
         const result = parseGdisWorkbook(e.target?.result as ArrayBuffer);
         setParsed(result);
+        if (result.rows.length > 0) {
+          contarServicosExistentes(result.rows.map((r) => r.servico))
+            .then(setJaExistentes)
+            .catch(() => setJaExistentes(null));
+        }
       } catch {
         setParsed({ rows: [], errors: ["Falha ao ler o arquivo."] });
       }
@@ -564,6 +574,7 @@ function GdisTab() {
   }, []);
 
   const reset = () => {
+    setJaExistentes(null);
     setFile(null); setParsed(null); setImportError(null); setImportSuccess(null);
     setMatriculasFaltantes([]);
     if (fileInputRef.current) fileInputRef.current.value = "";
@@ -735,7 +746,13 @@ function GdisTab() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
                   <p className="text-2xl font-black text-emerald-700">{parsed.rows.length}</p>
-                  <p className="text-xs font-semibold text-emerald-600 mt-0.5">Serviços válidos</p>
+                  <p className="text-xs font-semibold text-emerald-600 mt-0.5">Serviços no arquivo</p>
+                  {jaExistentes !== null && (
+                    <p className="text-xs text-emerald-700 mt-1">
+                      <strong>{parsed.rows.length - jaExistentes}</strong> novo{parsed.rows.length - jaExistentes !== 1 ? "s" : ""} ·{" "}
+                      <strong>{jaExistentes}</strong> já no sistema (só atualiza)
+                    </p>
+                  )}
                 </div>
                 <div className={`p-3 border rounded-xl text-center ${parsed.errors.length > 0 ? "bg-amber-50 border-amber-200" : "bg-slate-50 border-slate-200"}`}>
                   <p className={`text-2xl font-black ${parsed.errors.length > 0 ? "text-amber-700" : "text-slate-400"}`}>{parsed.errors.length}</p>

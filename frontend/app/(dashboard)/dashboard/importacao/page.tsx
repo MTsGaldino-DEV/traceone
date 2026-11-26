@@ -37,7 +37,7 @@ import type { MedidorParaSync, MedidorParaPC, ResultadoPC, MatriculaNaoCadastrad
 import { parsePlanilhaLucas, montarPlanoLucas, novoDeLinha } from "../../../../lib/planilhaLucas";
 import type { ParseLucasResult, PlanoLucas, ItemLucas, ItemRevisao } from "../../../../lib/planilhaLucas";
 import type { Colaborador, Role, TipoMedidor } from "../../../../lib/supabase";
-import { canForcarImportacao, canVincularServico } from "../../../../lib/permissions";
+import { canForcarImportacao, canImportarServico } from "../../../../lib/permissions";
 import { usePapel } from "../../../../lib/usePapel";
 
 // ═══════════════════════════════════════════════════════════════════
@@ -1904,20 +1904,21 @@ function PlanilhaLucasTab() {
 
 type Tab = "gdis" | "atribuicoes" | "pc" | "tc" | "lucas";
 
-// GDIS, PC, TC e Lucas gravam número de serviço: só para quem vincula.
+// GDIS, PC, TC e Lucas importam número de serviço: só para quem importa
+// (Almoxarifado vincula pelas telas, mas não importa).
 // Atribuições só mexe em matrícula/material/data (reatribuição).
-const TABS: { key: Tab; label: string; vinculo: boolean }[] = [
-  { key: "gdis", label: "Relatório GDIS", vinculo: true },
-  { key: "atribuicoes", label: "Atribuições", vinculo: false },
-  { key: "pc", label: "Planilha PC", vinculo: true },
-  { key: "tc", label: "Planilha TC", vinculo: true },
-  { key: "lucas", label: "Planilha Lucas", vinculo: true },
+const TABS: { key: Tab; label: string; importaServico: boolean }[] = [
+  { key: "gdis", label: "Relatório GDIS", importaServico: true },
+  { key: "atribuicoes", label: "Atribuições", importaServico: false },
+  { key: "pc", label: "Planilha PC", importaServico: true },
+  { key: "tc", label: "Planilha TC", importaServico: true },
+  { key: "lucas", label: "Planilha Lucas", importaServico: true },
 ];
 
 export default function ImportacaoPage() {
   const papel = usePapel();
-  const podeVincular = canVincularServico(papel);
-  const tabsVisiveis = TABS.filter((t) => podeVincular || !t.vinculo);
+  const podeImportar = canImportarServico(papel);
+  const tabsVisiveis = TABS.filter((t) => podeImportar || !t.importaServico);
   const [escolhida, setActiveTab] = useState<Tab | null>(null);
   const activeTab: Tab | undefined =
     tabsVisiveis.find((t) => t.key === escolhida)?.key ?? tabsVisiveis[0]?.key;

@@ -151,11 +151,12 @@ Todas exigem header `Authorization: Bearer <access_token>` do usuário logado; o
 
 `role_type` (enum): `ADMIN` · `GESTOR` · `SUPERVISOR` · `ALMOXARIFADO` · `ALMOXARIFADO_211` · `DESPACHANTE`
 
-- **Almoxarifado 211** (`ALMOXARIFADO_211`): almoxarifado que também vincula serviço — braço direito do Gestor.
-- **Supervisor** e **Almoxarifado**: reatribuem medidores, **não vinculam serviço**.
+- **Almoxarifado 211** (`ALMOXARIFADO_211`): almoxarifado que também vincula e importa serviço — braço direito do Gestor.
+- **Almoxarifado**: reatribui medidores e vincula serviço pelas telas, mas **não importa** (relatório GDIS, planilhas PC/TC/Lucas) — migration `047`.
+- **Supervisor**: reatribui medidores, **não vincula serviço**.
 - **Gestor**: tudo, inclusive Backup, Automação GDIS e Log de auditoria.
 
-"Vincular serviço" = qualquer gravação de número de serviço GDIS num medidor: Conferência, Conferência +45 dias, campo Serviço na Lista, Substituir nº do serviço na Duplicidade, importação do relatório GDIS e das planilhas PC/TC/Lucas. **Desvincular** (limpar o serviço) continua liberado para quem escreve.
+"Vincular serviço" = gravar número de serviço GDIS num medidor pelas telas: Conferência, Conferência +45 dias, campo Serviço na Lista, Substituir nº do serviço na Duplicidade. "Importar serviço" = importação do relatório GDIS e das planilhas PC/TC/Lucas (permissão separada, mais restrita). **Desvincular** (limpar o serviço) continua liberado para quem escreve.
 
 ### Matriz de acesso
 
@@ -164,14 +165,15 @@ Todas exigem header `Authorization: Bearer <access_token>` do usuário logado; o
 | Ler todas as tabelas operacionais | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Escrever em `medidores_list`, `colaboradores`, `tipos_de_medidores` | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Lançar / reatribuir medidor, substituir nº do medidor | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
-| **Vincular serviço** (inclui escrever em `servicos_report`) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Vincular serviço** (alterar/excluir em `servicos_report`) | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
+| **Importar serviço** (GDIS, PC/TC/Lucas; inserir em `servicos_report`) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Forçar importação GDIS com matrícula não cadastrada | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
 | Gerenciar usuários (`profiles`, `/api/users`) | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
 | Gestão de colaboradores (tela) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Backup, Automação GDIS, Log de auditoria | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Ocultar item da Conferência +45 dias / marcar duplicidade revisada | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 
-Helpers no código (`frontend/lib/permissions.ts`): `canWrite`, `canVincularServico`, `canGestao`, `canManageUsers`, `canManageColaboradores`, `canForcarImportacao`, `roleLabels`, `assignableRoles` (não é possível atribuir `ADMIN` pela tela). No banco: `pode_escrever()` e `pode_vincular_servico()` (migration `045`).
+Helpers no código (`frontend/lib/permissions.ts`): `canWrite`, `canVincularServico`, `canImportarServico`, `canGestao`, `canManageUsers`, `canManageColaboradores`, `canForcarImportacao`, `roleLabels`, `assignableRoles` (não é possível atribuir `ADMIN` pela tela). No banco: `pode_escrever()`, `pode_vincular_servico()` (migration `045`, ampliada na `047`) e `pode_importar_servico()` (`047`).
 
 ### Como isso é imposto
 

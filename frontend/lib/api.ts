@@ -1170,8 +1170,8 @@ export async function substituirSerialMedidor(id: string, serial: string): Promi
 }
 
 /**
- * Troca (ou grava) o serviço GDIS de uma linha. Só ADMIN, GESTOR e
- * ALMOXARIFADO_211. Linha PENDENTE vira CONCLUIDO; o serviço antigo, se ficou
+ * Troca (ou grava) o serviço GDIS de uma linha. Só quem vincula (ADMIN,
+ * GESTOR, ALMOXARIFADO_211, ALMOXARIFADO). Linha PENDENTE vira CONCLUIDO; o serviço antigo, se ficou
  * sem medidor, volta para a Conferência.
  */
 export async function substituirServicoMedidor(id: string, servico: string): Promise<void> {

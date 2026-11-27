@@ -28,6 +28,8 @@ import {
   AlertCircle,
   Link2,
   Loader2,
+  Lock,
+  LockOpen,
 } from "lucide-react";
 import * as XLSX from "xlsx";
 import {
@@ -37,6 +39,8 @@ import {
   deleteMedidor,
   getColaboradores,
   getMedidorReatribuicaoInfo,
+  getMedidorTravadoEm,
+  destravarMedidor,
   getMedidoresMetrics,
   getMedidoresAcima45Dias,
   getSupervisores,
@@ -47,7 +51,7 @@ import {
 import type { SortConfig, RankingItem, MedidorLog } from "../../../lib/api";
 import type { MedidorCompleto, Colaborador, TipoMedidor, Profile } from "../../../lib/supabase";
 import type { ReatribuicaoHistorico, DashboardMetrics } from "../../../lib/api";
-import { canVincularServico, canWrite } from "../../../lib/permissions";
+import { canImportarServico, canVincularServico, canWrite } from "../../../lib/permissions";
 import { StatusMedidor } from "../../../components/StatusMedidor";
 import { PieChart } from "../../../components/charts/pie-chart";
 import { PieSlice } from "../../../components/charts/pie-slice";
@@ -256,6 +260,7 @@ const LOG_EVENTO_CONFIG: Record<string, { label: string; bg: string; ring: strin
   REABERTO:          { label: "Reaberto",            bg: "bg-amber-400",   ring: "ring-amber-200",  text: "text-amber-700" },
   REATRIBUIDO:       { label: "Reatribuído",         bg: "bg-purple-400",  ring: "ring-purple-200", text: "text-purple-700" },
   EDITADO:           { label: "Editado",             bg: "bg-slate-300",    ring: "ring-linha",   text: "text-aco" },
+  DESTRAVADO:        { label: "Destravado",          bg: "bg-sky-400",     ring: "ring-sky-200",    text: "text-sky-700" },
 };
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -267,6 +272,7 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const canEdit = canWrite(profile?.role);
   const podeVincular = canVincularServico(profile?.role);
+  const podeDestravar = canImportarServico(profile?.role);
 
   useEffect(() => {
     getProfile().then(setProfile).catch(() => setProfile(null));
@@ -339,6 +345,8 @@ export default function DashboardPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [reatribuicao, setReatribuicao] = useState<ReatribuicaoHistorico | null>(null);
   const [loadingModal, setLoadingModal] = useState(false);
+  const [travadoEm, setTravadoEm] = useState<string | null>(null);
+  const [destravando, setDestravando] = useState(false);
   const [medidorLogs, setMedidorLogs] = useState<MedidorLog[]>([]);
 
   // ── load filter options once ──────────────────────────────────────────────
@@ -607,18 +615,42 @@ export default function DashboardPage() {
     setColabSuggestions([]);
     setReatribuicao(null);
     setMedidorLogs([]);
+    setTravadoEm(null);
     setLoadingModal(true);
     try {
-      const [hist, logs] = await Promise.all([
+      const [hist, logs, trava] = await Promise.all([
         getMedidorReatribuicaoInfo(row.id),
         getMedidorLogs(row.id),
+        getMedidorTravadoEm(row.id),
       ]);
       setReatribuicao(hist);
       setMedidorLogs(logs);
+      setTravadoEm(trava);
     } catch {
       // ignore
     } finally {
       setLoadingModal(false);
+    }
+  };
+
+  const handleDestravar = async () => {
+    if (!modalId || !modalRow) return;
+    if (!confirm(
+      `Destravar o medidor ${modalRow["Serial"]}?
+
+` +
+      "As próximas importações (SAP, PC/TC, Lucas) poderão sobrescrever os dados dele. " +
+      "Se ele for editado de novo no TraceOne, volta a travar."
+    )) return;
+    setDestravando(true);
+    try {
+      await destravarMedidor(modalId);
+      setTravadoEm(null);
+      setMedidorLogs(await getMedidorLogs(modalId));
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "Erro ao destravar o medidor.");
+    } finally {
+      setDestravando(false);
     }
   };
 
@@ -1595,6 +1627,29 @@ export default function DashboardPage() {
                   )}
                 </div>
               </div>
+              )}
+
+              {/* Trava contra importações (049/050) */}
+              {!loadingModal && travadoEm && (
+                <div className="flex items-start gap-3 rounded-lg p-3 bg-sky-50 border border-sky-200">
+                  <Lock size={15} className="text-sky-600 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-sky-900">Travado contra importações</p>
+                    <p className="text-xs text-sky-700 mt-0.5">
+                      Alterado no TraceOne em {new Date(travadoEm).toLocaleDateString("pt-BR")}. As planilhas (SAP, PC/TC, Lucas) não sobrescrevem este medidor.
+                    </p>
+                  </div>
+                  {podeDestravar && (
+                    <button
+                      onClick={handleDestravar}
+                      disabled={destravando}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-sky-700 border border-sky-300 rounded-lg hover:bg-sky-100 transition-colors disabled:opacity-50 shrink-0"
+                    >
+                      {destravando ? <Loader2 size={13} className="animate-spin" /> : <LockOpen size={13} />}
+                      {destravando ? "Destravando..." : "Destravar"}
+                    </button>
+                  )}
+                </div>
               )}
 
               {/* Reatribuição history */}

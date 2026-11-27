@@ -23,16 +23,17 @@ import { Logo } from "../../components/Logo";
 import { supabase } from "../../lib/supabase";
 import type { Profile } from "../../lib/supabase";
 import { logout, changeOwnPassword } from "../../lib/api";
-import { canGestao, canManageColaboradores, canManageUsers, canVincularServico, roleLabels } from "../../lib/permissions";
+import { canGestao, canImportarServico, canManageColaboradores, canManageUsers, canVincularServico, roleLabels } from "../../lib/permissions";
 
 // vinculo: só aparece para quem vincula serviço (Conferência é só isso)
+// importacao: só aparece para quem importa (ADMIN e GESTOR)
 const navItems = [
-  { label: "Lista de Medidores", href: "/dashboard", icon: LayoutDashboard, despachante: true, vinculo: false },
-  { label: "Lançamento Manual", href: "/dashboard/lancamento", icon: PlusCircle, despachante: false, vinculo: false },
-  { label: "Importar Relatório", href: "/dashboard/importacao", icon: UploadCloud, despachante: false, vinculo: false },
-  { label: "Conferência", href: "/dashboard/conferencia", icon: CheckSquare, despachante: false, vinculo: true },
-  { label: "Conferência +45 dias", href: "/dashboard/conferencia-45dias", icon: AlarmClockCheck, despachante: false, vinculo: false },
-  { label: "Duplicidade", href: "/dashboard/duplicidade", icon: Copy, despachante: false, vinculo: false },
+  { label: "Lista de Medidores", href: "/dashboard", icon: LayoutDashboard, despachante: true, vinculo: false, importacao: false },
+  { label: "Lançamento Manual", href: "/dashboard/lancamento", icon: PlusCircle, despachante: false, vinculo: false, importacao: false },
+  { label: "Importar Relatório", href: "/dashboard/importacao", icon: UploadCloud, despachante: false, vinculo: false, importacao: true },
+  { label: "Conferência", href: "/dashboard/conferencia", icon: CheckSquare, despachante: false, vinculo: true, importacao: false },
+  { label: "Conferência +45 dias", href: "/dashboard/conferencia-45dias", icon: AlarmClockCheck, despachante: false, vinculo: false, importacao: false },
+  { label: "Duplicidade", href: "/dashboard/duplicidade", icon: Copy, despachante: false, vinculo: false, importacao: false },
 ];
 
 // Visível pra quem escreve no sistema, incluindo o almoxarifado
@@ -40,7 +41,7 @@ const colaboradoresNavItems = [
   { label: "Gestão de Colaboradores", href: "/dashboard/colaboradores", icon: Contact },
 ];
 
-// Visível apenas de supervisor pra cima na hierarquia
+// Visível só para ADMIN e GESTOR (gestão de usuários)
 const usuariosNavItems = [
   { label: "Gestão de Usuários", href: "/dashboard/usuarios", icon: Users },
 ];
@@ -91,8 +92,12 @@ export default function DashboardLayout({
 
   const isDespachante = profile?.role === "DESPACHANTE";
   const podeVincular = canVincularServico(profile?.role);
+  const podeImportar = canImportarServico(profile?.role);
   const visibleNavItems = navItems.filter(
-    (n) => (isDespachante ? n.despachante : true) && (n.vinculo ? podeVincular : true)
+    (n) =>
+      (isDespachante ? n.despachante : true) &&
+      (n.vinculo ? podeVincular : true) &&
+      (n.importacao ? podeImportar : true)
   );
   const withColaboradores = canManageColaboradores(profile?.role)
     ? [...visibleNavItems, ...colaboradoresNavItems]

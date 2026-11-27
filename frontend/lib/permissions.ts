@@ -1,21 +1,24 @@
 import type { Role } from "./supabase";
 
-// Espelha as regras do banco (migrations 045 e 047). A tela esconde o que o
-// papel não pode fazer; a trava de verdade fica no banco.
+// Espelha as regras do banco (migrations 045, 047 e 048). A tela esconde o que
+// o papel não pode fazer; a trava de verdade fica no banco.
 //
 //   ADMIN            tudo
-//   GESTOR           tudo, inclusive Backup, Automação GDIS e Log de auditoria
-//   ALMOXARIFADO_211 almoxarifado que também vincula e importa serviço
+//   GESTOR           tudo, inclusive usuários, importação, Backup, Automação
+//                    GDIS e Log de auditoria
+//   ALMOXARIFADO_211 reatribui e vincula serviço, não importa
 //   ALMOXARIFADO     reatribui e vincula serviço, não importa
-//   SUPERVISOR       reatribui, não vincula serviço
+//   SUPERVISOR       reatribui e cadastra colaboradores; não vincula, não
+//                    importa, não gerencia usuários
 //   DESPACHANTE      só leitura
 
-export const MANAGER_ROLES: Role[] = ["ADMIN", "GESTOR", "SUPERVISOR"];
+/** Gerenciar usuários (tela Usuários e rotas /api/users). */
+export const MANAGER_ROLES: Role[] = ["ADMIN", "GESTOR"];
 export const WRITE_ROLES: Role[] = ["ADMIN", "GESTOR", "SUPERVISOR", "ALMOXARIFADO", "ALMOXARIFADO_211"];
 /** Gravar número de serviço GDIS num medidor pelas telas (Conferência, +45 dias, Lista, Duplicidade). */
 export const VINCULO_ROLES: Role[] = ["ADMIN", "GESTOR", "ALMOXARIFADO_211", "ALMOXARIFADO"];
-/** Importar serviço: relatório GDIS e planilhas PC/TC/Lucas. */
-export const IMPORTACAO_ROLES: Role[] = ["ADMIN", "GESTOR", "ALMOXARIFADO_211"];
+/** Tela Importar: relatório GDIS, Atribuições e planilhas PC/TC/Lucas. */
+export const IMPORTACAO_ROLES: Role[] = ["ADMIN", "GESTOR"];
 const GESTAO_ROLES: Role[] = ["ADMIN", "GESTOR"];
 
 export function canManageUsers(role?: Role | null): boolean {
@@ -40,7 +43,7 @@ export function canVincularServico(role?: Role | null): boolean {
   return !!role && VINCULO_ROLES.includes(role);
 }
 
-/** Importar serviço: abas Relatório GDIS, Planilha PC, TC e Lucas. */
+/** Tela Importar inteira: Relatório GDIS, Atribuições, Planilha PC, TC e Lucas. */
 export function canImportarServico(role?: Role | null): boolean {
   return !!role && IMPORTACAO_ROLES.includes(role);
 }

@@ -71,11 +71,31 @@ adaptar, definir o que será criado, atualizado, ignorado e exigirá revisão.
 - Vínculo de serviço tem permissão própria; não confundir com edição geral.
   Consultar `frontend/lib/permissions.ts`, triggers e regras atuais.
 - **Vincular ≠ importar (26/11/2026, migration 047):** ALMOXARIFADO vincula/troca
-  serviço nas telas (Conferência, +45 dias, Lista, Duplicidade), mas NÃO importa.
-  Abas GDIS/PC/TC/Lucas e importação forçada: só ADMIN, GESTOR, ALMOXARIFADO_211
+  serviço nas telas (Conferência, +45 dias, Lista, Duplicidade), mas NÃO importa
   (`canImportarServico` / `pode_importar_servico()`). Em `servicos_report`,
   INSERT exige importar; UPDATE/DELETE exigem vincular. SUPERVISOR segue sem
-  vincular. A 047 precisa ser rodada à mão por Matheus.
+  vincular. 047 rodada por Matheus em 26/11.
+- **Importar e usuários só Gestor+ (26/11/2026, migration 048):** tela Importar
+  inteira (GDIS, Atribuições, PC/TC/Lucas) e gestão de usuários só ADMIN/GESTOR;
+  ALMOXARIFADO_211 deixou de importar, SUPERVISOR deixou de gerenciar usuários
+  (segue cadastrando colaboradores). 048 também trava troca de role/is_active
+  em profiles (antes qualquer usuário podia trocar o próprio role). Atribuições
+  só tem trava na tela (049 adiciona trava no banco via RPC).
+- **Importação não sobrescreve o TraceOne (27/11/2026, migration 049 — rodada
+  por Matheus em 27/11; conferido: 286 de 23.369 medidores travados):** `medidores_list.editado_traceone_em` marca medidor
+  alterado por usuário (reatribuição, edição, vínculo nas telas). Não marcam:
+  lançamento novo, auto-vínculo, importações, SQL sem usuário. Importações ligam
+  `traceone.importacao='on'`; com ela, UPDATE em medidor marcado é descartado
+  (trava o medidor inteiro). Exclusão por recebedor vazio no SAP vale mesmo
+  assim (decisão de Matheus). Atribuições passou a usar a RPC
+  `sincronizar_atribuicoes` (Gestor+). PC/TC tira o item do lote; Lucas DATA
+  descartado. Retroativo só para reatribuições. Telas mostram lista
+  "Preservados". Liberar medidor: botão "Destravar" no detalhe do medidor na
+  Lista (Gestor+, RPC `destravar_medidor`, migration 050 — rodada por Matheus em 27/11;
+  grava DESTRAVADO em medidor_logs; editar de novo trava de novo) ou
+  `SET editado_traceone_em = NULL` no SQL editor.
+  GDIS não grava em medidores, não foi alterado. Frontend depende da 049
+  (sem ela, Atribuições falha: RPC inexistente).
 - **Workflow explícito do usuário:** migrations novas são SQL sequencial para
   execução manual. Não há aplicação automática. Por padrão Matheus roda no
   SQL Editor; se pedir execução pelo agente, memória registra

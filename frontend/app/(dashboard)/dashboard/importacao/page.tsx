@@ -175,6 +175,7 @@ interface SyncReport {
   reatribuicoes: AtribItem[]; // matricula mudou
   divergencias: AtribItem[];  // material/data diverge
   invalidas: AtribItem[];     // matrícula não existe no sistema
+  preservados: AtribItem[];   // alterado no TraceOne: a planilha não mexe
 }
 
 /**
@@ -205,6 +206,7 @@ function buildSyncReport(
   const reatribuicoes: AtribItem[] = [];
   const divergencias: AtribItem[] = [];
   const invalidas: AtribItem[] = [];
+  const preservados: AtribItem[] = [];
 
   for (const row of planilhaRows) {
     const db = dbMap.get(row.serial);
@@ -212,6 +214,16 @@ function buildSyncReport(
 
     if (!row.matricula) {
       devolvidos.push({ id: db.id, serial: row.serial, detail: `Recebedor vazio — será excluído` });
+      continue;
+    }
+
+    // Alterado no TraceOne: vale o que está no TraceOne (049).
+    if (db.editado_traceone_em) {
+      const parts: string[] = [];
+      if (row.matricula !== db.matricula) parts.push(`Matrícula: SAP ${row.matricula} · TraceOne ${db.matricula}`);
+      if (row.material && row.material !== db.material_sap) parts.push(`Material: SAP ${row.material} · TraceOne ${db.material_sap}`);
+      if (row.data && row.data !== db.data) parts.push(`Data: SAP ${formatBR(row.data)} · TraceOne ${formatBR(db.data)}`);
+      if (parts.length > 0) preservados.push({ id: db.id, serial: row.serial, detail: parts.join(" | ") });
       continue;
     }
 
@@ -254,7 +266,7 @@ function buildSyncReport(
     }
   }
 
-  return { devolvidos, reatribuicoes, divergencias, invalidas };
+  return { devolvidos, reatribuicoes, divergencias, invalidas, preservados };
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -418,6 +430,7 @@ interface PlanoPC {
   inalterados: number;           // já bate com a planilha
   anterioresAtribuicao: number;  // última instalação é anterior à atribuição
   foraDoCadastro: number;        // seriais da planilha que não são nossos
+  preservados: ItemPlano[];      // alterado no TraceOne: a planilha não mexe
 }
 
 /**
@@ -435,6 +448,7 @@ function montarPlanoPC(linhas: LinhaPC[], medidores: MedidorParaPC[]): PlanoPC {
 
   const plano: PlanoPC = {
     novos: [], atualizados: [], inalterados: 0, anterioresAtribuicao: 0, foraDoCadastro: 0,
+    preservados: [],
   };
 
   const seriaisUsados = new Set<string>();
@@ -469,6 +483,9 @@ function montarPlanoPC(linhas: LinhaPC[], medidores: MedidorParaPC[]): PlanoPC {
 
     if (jaBate) {
       plano.inalterados++;
+    } else if (m.editado_traceone_em) {
+      item.detail = `Planilha: serviço ${escolhido.servico} em ${formatBR(escolhido.dataFim)} · mantido como está no TraceOne`;
+      plano.preservados.push(item);
     } else if (m.status === "PENDENTE") {
       item.detail = `Serviço ${escolhido.servico} · instalado em ${formatBR(escolhido.dataFim)}`;
       plano.novos.push(item);
@@ -829,7 +846,7 @@ function AtribuicoesTab() {
   const [file, setFile] = useState<File | null>(null);
   const [stage, setStage] = useState<AtribStage>("idle");
   const [report, setReport] = useState<SyncReport | null>(null);
-  const [syncResult, setSyncResult] = useState<{ updated: number; deleted: number } | null>(null);
+  const [syncResult, setSyncResult] = useState<{ updated: number; deleted: number; preservados: number } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [progress, setProgress] = useState("");
 
@@ -956,6 +973,7 @@ function AtribuicoesTab() {
             <p className="text-sm font-bold">Sincronização concluída!</p>
             <p className="text-xs text-emerald-600 mt-0.5">
               {syncResult.updated} registro{syncResult.updated !== 1 ? "s" : ""} atualizado{syncResult.updated !== 1 ? "s" : ""} · {syncResult.deleted} excluído{syncResult.deleted !== 1 ? "s" : ""}
+              {syncResult.preservados > 0 && <> · {syncResult.preservados} preservado{syncResult.preservados !== 1 ? "s" : ""} (alterado{syncResult.preservados !== 1 ? "s" : ""} no TraceOne)</>}
             </p>
           </div>
           <button onClick={reset} className="text-emerald-600 hover:text-emerald-800 text-xs font-semibold flex items-center gap-1">
@@ -993,6 +1011,7 @@ function AtribuicoesTab() {
             <li>• O sistema compara cada medidor com o banco de dados</li>
             <li>• Identifica: mudanças de atribuição, material ou datas</li>
             <li>• Exclui medidores sem recebedor (devolvidos)</li>
+            <li>• Medidores alterados no TraceOne (ex.: reatribuídos) não são sobrescritos</li>
           </ul>
         </div>
       )}
@@ -1097,6 +1116,12 @@ function AtribuicoesTab() {
                 items={report.invalidas}
               />
             )}
+            <CollapsibleList
+              title="Preservados — alterados no TraceOne, a planilha não sobrescreve"
+              count={report.preservados.length}
+              color="bg-sky-50 border-sky-200 text-sky-800"
+              items={report.preservados}
+            />
 
             {totalChanges === 0 && !hasInvalidas && (
               <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
@@ -1434,6 +1459,12 @@ function PlanilhaVinculacaoTab({ formato }: { formato: FormatoVinculacao }) {
               count={plano.atualizados.length}
               color="bg-amber-50 border-amber-200 text-amber-800"
               items={plano.atualizados}
+            />
+            <CollapsibleList
+              title="Preservados — alterados no TraceOne, a planilha não sobrescreve"
+              count={plano.preservados.length}
+              color="bg-sky-50 border-sky-200 text-sky-800"
+              items={plano.preservados}
             />
             {plano.anterioresAtribuicao > 0 && (
               <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl">
@@ -1847,6 +1878,12 @@ function PlanilhaLucasTab() {
               color="bg-amber-50 border-amber-200 text-amber-800"
               items={plano.datas}
             />
+            <CollapsibleList
+              title="Preservados — alterados no TraceOne, a planilha não sobrescreve"
+              count={plano.preservados.length}
+              color="bg-sky-50 border-sky-200 text-sky-800"
+              items={plano.preservados}
+            />
             <RevisaoLucas
               itens={plano.revisao}
               escolhas={escolhas}
@@ -1904,21 +1941,20 @@ function PlanilhaLucasTab() {
 
 type Tab = "gdis" | "atribuicoes" | "pc" | "tc" | "lucas";
 
-// GDIS, PC, TC e Lucas importam número de serviço: só para quem importa
-// (Almoxarifado vincula pelas telas, mas não importa).
-// Atribuições só mexe em matrícula/material/data (reatribuição).
-const TABS: { key: Tab; label: string; importaServico: boolean }[] = [
-  { key: "gdis", label: "Relatório GDIS", importaServico: true },
-  { key: "atribuicoes", label: "Atribuições", importaServico: false },
-  { key: "pc", label: "Planilha PC", importaServico: true },
-  { key: "tc", label: "Planilha TC", importaServico: true },
-  { key: "lucas", label: "Planilha Lucas", importaServico: true },
+// A tela inteira é só para quem importa (ADMIN e GESTOR); o menu já esconde
+// e o layout redireciona quem entrar pela URL.
+const TABS: { key: Tab; label: string }[] = [
+  { key: "gdis", label: "Relatório GDIS" },
+  { key: "atribuicoes", label: "Atribuições" },
+  { key: "pc", label: "Planilha PC" },
+  { key: "tc", label: "Planilha TC" },
+  { key: "lucas", label: "Planilha Lucas" },
 ];
 
 export default function ImportacaoPage() {
   const papel = usePapel();
   const podeImportar = canImportarServico(papel);
-  const tabsVisiveis = TABS.filter((t) => podeImportar || !t.importaServico);
+  const tabsVisiveis = podeImportar ? TABS : [];
   const [escolhida, setActiveTab] = useState<Tab | null>(null);
   const activeTab: Tab | undefined =
     tabsVisiveis.find((t) => t.key === escolhida)?.key ?? tabsVisiveis[0]?.key;

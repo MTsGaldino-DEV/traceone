@@ -318,6 +318,24 @@ export async function getMedidorLogs(medidorId: string): Promise<MedidorLog[]> {
   return (data ?? []) as MedidorLog[];
 }
 
+/** Quando o medidor foi alterado no TraceOne (049). NULL = importações podem atualizá-lo. */
+export async function getMedidorTravadoEm(medidorId: string): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('medidores_list')
+    .select('editado_traceone_em')
+    .eq('id', medidorId)
+    .single();
+  if (error) throw traduzirErro(error);
+  return (data?.editado_traceone_em as string | null) ?? null;
+}
+
+/** Libera o medidor para as importações voltarem a atualizá-lo (050). Gestor+. */
+export async function destravarMedidor(medidorId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('destravar_medidor', { p_medidor_id: medidorId });
+  if (error) throw traduzirErro(error);
+  return data === true;
+}
+
 export async function deleteMedidor(id: string): Promise<void> {
   const { error } = await supabase
     .from('medidores_list')
@@ -735,6 +753,8 @@ export interface MedidorParaSync {
   matricula: string;
   material_sap: string;
   data: string;
+  /** Alterado no TraceOne (049): importações não sobrescrevem. */
+  editado_traceone_em: string | null;
 }
 
 export async function getMedidoresParaSync(): Promise<MedidorParaSync[]> {
@@ -744,7 +764,7 @@ export async function getMedidoresParaSync(): Promise<MedidorParaSync[]> {
   while (true) {
     const { data, error } = await supabase
       .from('medidores_list')
-      .select('id,serial,matricula,material_sap,data')
+      .select('id,serial,matricula,material_sap,data,editado_traceone_em')
       .range(from, from + PAGE - 1);
     if (error) throw traduzirErro(error);
     result.push(...((data ?? []) as MedidorParaSync[]));
@@ -754,28 +774,33 @@ export async function getMedidoresParaSync(): Promise<MedidorParaSync[]> {
   return result;
 }
 
+/**
+ * Aplica a planilha SAP pela RPC sincronizar_atribuicoes (049), que liga a
+ * flag de importação: medidor alterado no TraceOne não é atualizado (conta em
+ * preservados). Exclusão de devolvidos vale mesmo para medidor alterado.
+ */
 export async function syncAtribuicoes(params: {
   updates: { id: string; patch: { matricula?: string; material_sap?: string; data?: string } }[];
   deletes: string[];
-}): Promise<{ updated: number; deleted: number }> {
-  let updated = 0;
-  let deleted = 0;
-
-  for (const { id, patch } of params.updates) {
-    const { error } = await supabase.from('medidores_list').update(patch).eq('id', id);
+}): Promise<{ updated: number; deleted: number; preservados: number }> {
+  const total = { updated: 0, deleted: 0, preservados: 0 };
+  const BATCH = 500;
+  const lotes = Math.max(
+    Math.ceil(params.updates.length / BATCH),
+    Math.ceil(params.deletes.length / BATCH),
+  );
+  for (let i = 0; i < lotes; i++) {
+    const { data, error } = await supabase.rpc('sincronizar_atribuicoes', {
+      p_updates: params.updates.slice(i * BATCH, (i + 1) * BATCH),
+      p_deletes: params.deletes.slice(i * BATCH, (i + 1) * BATCH),
+    });
     if (error) throw traduzirErro(error);
-    updated++;
+    const r = data as { updated: number; deleted: number; preservados: number } | null;
+    total.updated += r?.updated ?? 0;
+    total.deleted += r?.deleted ?? 0;
+    total.preservados += r?.preservados ?? 0;
   }
-
-  const BATCH = 100;
-  for (let i = 0; i < params.deletes.length; i += BATCH) {
-    const batch = params.deletes.slice(i, i + BATCH);
-    const { error } = await supabase.from('medidores_list').delete().in('id', batch);
-    if (error) throw traduzirErro(error);
-    deleted += batch.length;
-  }
-
-  return { updated, deleted };
+  return total;
 }
 
 // ─── Planilha PC ──────────────────────────────────────────────────────────────
@@ -789,6 +814,8 @@ export interface MedidorParaPC {
   data: string;                    // data de atribuição
   data_conclusao: string | null;
   matricula: string;
+  /** Alterado no TraceOne (049): a planilha não mexe nele. */
+  editado_traceone_em: string | null;
 }
 
 /** Uma vinculação a aplicar: medidor ← serviço + data de instalação. */
@@ -814,7 +841,7 @@ export async function getMedidoresParaPC(): Promise<MedidorParaPC[]> {
   while (true) {
     const { data, error } = await supabase
       .from('medidores_list')
-      .select('id,serial,status,servico_gdis,data,data_conclusao,matricula')
+      .select('id,serial,status,servico_gdis,data,data_conclusao,matricula,editado_traceone_em')
       .range(from, from + PAGE - 1);
     if (error) throw traduzirErro(error);
     result.push(...((data ?? []) as MedidorParaPC[]));

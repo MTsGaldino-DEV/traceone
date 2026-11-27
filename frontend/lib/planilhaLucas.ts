@@ -41,6 +41,8 @@ export interface MedidorParaLucas {
   serial: string;
   matricula: string;
   data: string;
+  /** Alterado no TraceOne (049): a planilha não mexe nele. */
+  editado_traceone_em?: string | null;
 }
 
 export interface ItemNovoLucas {
@@ -94,6 +96,7 @@ export interface PlanoLucas {
   datas: (ItemDataLucas & ItemLista)[];
   inalterados: number;            // já no TraceOne, nada a mudar
   revisao: ItemRevisao[];         // não entram sem a escolha do usuário
+  preservados: ItemLista[];       // alterado no TraceOne: a planilha não mexe
 }
 
 const ALIASES: Record<string, string> = {
@@ -277,7 +280,7 @@ export function montarPlanoLucas(
     else cadastro.set(k, [m]);
   }
 
-  const plano: PlanoLucas = { novos: [], datas: [], inalterados: 0, revisao: [] };
+  const plano: PlanoLucas = { novos: [], datas: [], inalterados: 0, revisao: [], preservados: [] };
   const onde = (l: LinhaLucas) => `aba ${l.aba}, linha ${l.linhaPlanilha}`;
   const bloquear = (l: LinhaLucas, motivo: string) =>
     plano.revisao.push({ tipo: 'BLOQUEADO', serial: l.serial, detail: `${motivo} (${onde(l)})` });
@@ -286,9 +289,18 @@ export function montarPlanoLucas(
     const existentes = cadastro.get(l.serial);
 
     if (existentes) {
-      const genericas = existentes.filter((m) => m.data === DATA_GENERICA);
-      if (genericas.length === 0 || !l.data || l.data === DATA_GENERICA) {
+      const comGenerica = existentes.filter((m) => m.data === DATA_GENERICA);
+      if (comGenerica.length === 0 || !l.data || l.data === DATA_GENERICA) {
         plano.inalterados++;
+        continue;
+      }
+      // Alterado no TraceOne (049): vale o que está no TraceOne.
+      const genericas = comGenerica.filter((m) => !m.editado_traceone_em);
+      if (genericas.length === 0) {
+        plano.preservados.push({
+          serial: l.serial,
+          detail: `Planilha: atribuição ${formatBR(l.data)} · mantido como está no TraceOne (${onde(l)})`,
+        });
         continue;
       }
       // Com várias linhas (reatribuição), só a da mesma matrícula é o

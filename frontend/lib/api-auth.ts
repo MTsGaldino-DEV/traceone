@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "./supabase-admin";
 import type { Role } from "./supabase";
-
-const MANAGER_ROLES: Role[] = ["ADMIN", "GESTOR", "SUPERVISOR"];
+import { MANAGER_ROLES } from "./permissions";
 
 export async function requireManager(req: NextRequest) {
   const authHeader = req.headers.get("authorization") ?? "";

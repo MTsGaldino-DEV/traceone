@@ -151,12 +151,11 @@ Todas exigem header `Authorization: Bearer <access_token>` do usuário logado; o
 
 `role_type` (enum): `ADMIN` · `GESTOR` · `SUPERVISOR` · `ALMOXARIFADO` · `ALMOXARIFADO_211` · `DESPACHANTE`
 
-- **Almoxarifado 211** (`ALMOXARIFADO_211`): almoxarifado que também vincula e importa serviço — braço direito do Gestor.
-- **Almoxarifado**: reatribui medidores e vincula serviço pelas telas, mas **não importa** (relatório GDIS, planilhas PC/TC/Lucas) — migration `047`.
-- **Supervisor**: reatribui medidores, **não vincula serviço**.
-- **Gestor**: tudo, inclusive Backup, Automação GDIS e Log de auditoria.
+- **Almoxarifado 211** (`ALMOXARIFADO_211`) e **Almoxarifado**: reatribuem medidores e vinculam serviço pelas telas, mas **não importam** (migrations `047`/`048`).
+- **Supervisor**: reatribui medidores e cadastra colaboradores; **não vincula serviço, não importa e não gerencia usuários** (`048`).
+- **Gestor**: tudo, inclusive usuários, importação, Backup, Automação GDIS e Log de auditoria.
 
-"Vincular serviço" = gravar número de serviço GDIS num medidor pelas telas: Conferência, Conferência +45 dias, campo Serviço na Lista, Substituir nº do serviço na Duplicidade. "Importar serviço" = importação do relatório GDIS e das planilhas PC/TC/Lucas (permissão separada, mais restrita). **Desvincular** (limpar o serviço) continua liberado para quem escreve.
+"Vincular serviço" = gravar número de serviço GDIS num medidor pelas telas: Conferência, Conferência +45 dias, campo Serviço na Lista, Substituir nº do serviço na Duplicidade. "Importar" = a tela Importar Relatório inteira (relatório GDIS, Atribuições, planilhas PC/TC/Lucas): só ADMIN e GESTOR. **Desvincular** (limpar o serviço) continua liberado para quem escreve.
 
 ### Matriz de acesso
 
@@ -166,14 +165,14 @@ Todas exigem header `Authorization: Bearer <access_token>` do usuário logado; o
 | Escrever em `medidores_list`, `colaboradores`, `tipos_de_medidores` | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Lançar / reatribuir medidor, substituir nº do medidor | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **Vincular serviço** (alterar/excluir em `servicos_report`) | ✅ | ✅ | ✅ | ❌ | ✅ | ❌ |
-| **Importar serviço** (GDIS, PC/TC/Lucas; inserir em `servicos_report`) | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Forçar importação GDIS com matrícula não cadastrada | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ |
-| Gerenciar usuários (`profiles`, `/api/users`) | ✅ | ✅ | ❌ | ✅ | ❌ | ❌ |
+| **Importar** (GDIS, Atribuições, PC/TC/Lucas; inserir em `servicos_report`) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Forçar importação GDIS com matrícula não cadastrada | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
+| Gerenciar usuários (`profiles`, `/api/users`; trocar papel/ativo) | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Gestão de colaboradores (tela) | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 | Backup, Automação GDIS, Log de auditoria | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ |
 | Ocultar item da Conferência +45 dias / marcar duplicidade revisada | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ |
 
-Helpers no código (`frontend/lib/permissions.ts`): `canWrite`, `canVincularServico`, `canImportarServico`, `canGestao`, `canManageUsers`, `canManageColaboradores`, `canForcarImportacao`, `roleLabels`, `assignableRoles` (não é possível atribuir `ADMIN` pela tela). No banco: `pode_escrever()`, `pode_vincular_servico()` (migration `045`, ampliada na `047`) e `pode_importar_servico()` (`047`).
+Helpers no código (`frontend/lib/permissions.ts`): `canWrite`, `canVincularServico`, `canImportarServico`, `canGestao`, `canManageUsers`, `canManageColaboradores`, `canForcarImportacao`, `roleLabels`, `assignableRoles` (não é possível atribuir `ADMIN` pela tela). No banco: `pode_escrever()`, `pode_vincular_servico()` (migration `045`, ampliada na `047`) e `pode_importar_servico()` (`047`, só ADMIN/GESTOR desde a `048`). A aba Atribuições grava direto em `medidores_list` (mesma permissão do lançamento), então a restrição dela é só na tela.
 
 ### Como isso é imposto
 
